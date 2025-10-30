@@ -50,7 +50,7 @@ This guide will walk you through deploying the entire application to **Render**,
     - **Environment**: `Node`.
     - **Region**: Choose a region closest to you (e.g., Frankfurt).
     - **Branch**: `main` (or your default branch).
-    - **Build Command**: `npm install --prefix backend && npx prisma generate --prefix backend`
+    - **Build Command**: `npm install --prefix backend && npx prisma generate --schema=./backend/prisma/schema.prisma`
       *This command tells Render to install the backend's dependencies and prepare the database client.*
     - **Start Command**: `npm start --prefix backend`
       *This command tells Render how to start your server.*
@@ -76,7 +76,7 @@ After you create the service, Render will start building your application. This 
 2.  Wait for the shell to connect.
 3.  Type the following command and press Enter:
     ```bash
-    npx prisma migrate dev --name init --prefix backend
+    npx prisma migrate dev --name init --schema=./backend/prisma/schema.prisma
     ```
 4.  This will set up your database schema. After it finishes, go to the **Events** tab or the **Logs** tab and trigger a new deploy by clicking "Manual Deploy" -> "Deploy latest commit".
 

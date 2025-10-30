@@ -121,10 +121,10 @@ const ChatbotModal: React.FC<ChatbotModalProps> = ({ initialMessage, userId }) =
   };
 
   return (
-    <div className="fixed bottom-5 right-5 md:bottom-auto md:right-5 z-50 animate-fade-in">
-      <div className="bg-white rounded-lg shadow-2xl w-[calc(100vw-40px)] h-[70vh] md:w-96 md:h-[600px] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="chatbot-title">
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg h-[80vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="chatbot-title">
         {/* Header */}
-        <div className="p-4 bg-primary text-white rounded-t-lg flex justify-between items-center">
+        <div className="p-4 bg-primary text-white rounded-t-lg flex justify-between items-center flex-shrink-0">
           <div className="flex items-center">
             <SparklesIcon className="w-6 h-6 mr-2" />
             <h2 id="chatbot-title" className="text-lg font-bold">V-Ken AI Assistant</h2>
@@ -147,37 +147,37 @@ const ChatbotModal: React.FC<ChatbotModalProps> = ({ initialMessage, userId }) =
             {isLoading && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] p-3 rounded-2xl bg-gray-200 text-gray-800 rounded-bl-none">
-                  <div className="flex items-center space-x-1.5">
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
+                  <div className="flex space-x-1">
+                    <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
+                    <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
+                    <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-pulse"></div>
                   </div>
                 </div>
               </div>
             )}
+            <div ref={messagesEndRef} />
           </div>
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Input Form */}
-        <div className="p-4 border-t border-gray-200 bg-white rounded-b-lg">
+        <div className="p-4 border-t border-gray-200 bg-white rounded-b-lg flex-shrink-0">
           <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
             <input
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Ask me anything..."
-              className="w-full p-2 border border-gray-300 rounded-full focus:ring-2 focus:ring-primary focus:border-transparent transition"
-              disabled={isLoading || !sessionId}
+              placeholder="Type your message..."
+              className="w-full p-3 border border-gray-300 rounded-full focus:ring-2 focus:ring-primary focus:border-transparent transition"
+              disabled={isLoading}
             />
             <button
               type="submit"
-              className="bg-primary text-white p-2 rounded-full hover:bg-green-800 transition-colors disabled:bg-gray-400"
-              disabled={isLoading || !inputValue.trim() || !sessionId}
+              className="bg-primary text-white p-3 rounded-full hover:bg-green-800 transition-colors disabled:bg-gray-400"
+              disabled={isLoading || !inputValue.trim()}
               aria-label="Send message"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             </button>
           </form>

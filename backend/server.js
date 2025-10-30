@@ -28,6 +28,12 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkey_please_change_this_in_production'; // Strongly recommend a robust secret
 
+// --- Helper for Enum mapping ---
+const toPrismaEnum = (str) => {
+  if (!str) return undefined;
+  return str.replace(/-/g, '_').toUpperCase();
+};
+
 // Middleware
 app.use(cors()); // Enable CORS for all routes
 app.use(express.json()); // Parse JSON request bodies
@@ -288,9 +294,9 @@ app.get('/api/providers/search', authenticateToken, async (req, res) => {
     try {
         const searchResults = await prisma.serviceProvider.findMany({
             where: {
-                category: category,
+                category: toPrismaEnum(category),
                 locations: {
-                    has: location, // Checks if the 'locations' array contains the specified location
+                    has: toPrismaEnum(location), // Checks if the 'locations' array contains the specified location
                 },
                 isBlacklisted: false, // Do not show blacklisted providers in public search
             },
@@ -330,8 +336,8 @@ app.post('/api/providers', authenticateToken, async (req, res) => {
       data: {
         ownerId: req.user.userId,
         name,
-        category,
-        locations: { set: locations },
+        category: toPrismaEnum(category),
+        locations: { set: locations.map(toPrismaEnum) },
         rating: 5.0,
         reviewsCount: 0,
         description,
@@ -424,8 +430,8 @@ app.put('/api/providers/:id', authenticateToken, async (req, res) => {
             where: { id },
             data: {
                 name,
-                category,
-                locations: locations ? { set: locations } : undefined,
+                category: toPrismaEnum(category),
+                locations: locations ? { set: locations.map(toPrismaEnum) } : undefined,
                 description,
                 hourlyRate,
                 logoUrl,
@@ -485,8 +491,8 @@ app.post('/api/alerts', authenticateToken, async (req, res) => {
         const newAlert = await prisma.jobAlert.create({
             data: {
                 userId: req.user.userId,
-                serviceCategory,
-                location,
+                serviceCategory: toPrismaEnum(serviceCategory),
+                location: toPrismaEnum(location),
             },
         });
         res.status(201).json({ message: 'Job alert created successfully', alert: newAlert });
