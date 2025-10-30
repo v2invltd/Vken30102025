@@ -1,0 +1,190 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { CloseIcon, SparklesIcon } from './IconComponents';
+import { useAppContext } from '../contexts/AppContext';
+import * as api from '../frontend/services/api'; // Use the new API service
+
+interface ChatbotModalProps {
+  initialMessage?: string;
+  userId: string; // Pass userId to initialize session
+}
+
+interface Message {
+  role: 'user' | 'model';
+  text: string;
+}
+
+const ChatbotModal: React.FC<ChatbotModalProps> = ({ initialMessage, userId }) => {
+  const { dispatch } = useAppContext();
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const onClose = () => {
+    if (sessionId) {
+        api.closeChatbotSession(sessionId).catch(console.error); // Attempt to close session on backend
+    }
+    dispatch({ type: 'CLOSE_MODAL' });
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const initializeChatSession = async () => {
+      try {
+        const response = await api.initChatbotSession(userId, initialMessage);
+        if (isMounted) {
+            setSessionId(response.sessionId);
+            const firstMessage = initialMessage || 'Hello! How can I help you today? Feel free to ask me anything about our services.';
+            setMessages([{ role: 'model', text: firstMessage }]);
+        }
+      } catch (error) {
+        console.error('Error initializing chatbot session:', error);
+        if (isMounted) {
+            setMessages([{ role: 'model', text: 'Sorry, I could not start the AI assistant. Please try again later.' }]);
+        }
+      }
+    };
+    initializeChatSession();
+
+    // Cleanup on unmount
+    return () => {
+        isMounted = false;
+        // The sessionId for cleanup is captured in the closure
+        if (sessionId) {
+            api.closeChatbotSession(sessionId).catch(console.error);
+        }
+    };
+  }, [initialMessage, userId]); // sessionId is removed from dependencies to prevent re-initialization
+
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputValue.trim() || !sessionId || isLoading) return;
+
+    const userMessage: Message = { role: 'user', text: inputValue };
+    setMessages(prev => [...prev, userMessage]);
+    setInputValue('');
+    setIsLoading(true);
+
+    try {
+      const reader = await api.sendChatbotMessageStream(sessionId, inputValue);
+      const decoder = new TextDecoder();
+      let botResponse = '';
+
+      setMessages(prev => [...prev, { role: 'model', text: '' }]); // Add empty model message placeholder
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        // EventSource compatible format: data: { ...json } \n\n
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                const jsonStr = line.substring(5);
+                try {
+                    const parsedChunk = JSON.parse(jsonStr);
+                    if (parsedChunk.error) {
+                        throw new Error(parsedChunk.error);
+                    }
+                    botResponse += parsedChunk.text;
+                    setMessages(prev => {
+                        const lastMessage = prev[prev.length - 1];
+                        if (lastMessage && lastMessage.role === 'model') {
+                            const newMessages = [...prev];
+                            newMessages[newMessages.length - 1] = { ...lastMessage, text: botResponse };
+                            return newMessages;
+                        }
+                        return prev;
+                    });
+                } catch (jsonError) {
+                    console.error("Failed to parse JSON from stream:", jsonError, "Raw chunk:", jsonStr);
+                }
+            }
+        }
+      }
+    } catch (error) {
+      console.error('Error sending message to AI chatbot:', error);
+      setMessages(prev => [
+        ...prev,
+        { role: 'model', text: 'Sorry, I encountered an error. Please try again.' },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed bottom-5 right-5 md:bottom-auto md:right-5 z-50 animate-fade-in">
+      <div className="bg-white rounded-lg shadow-2xl w-[calc(100vw-40px)] h-[70vh] md:w-96 md:h-[600px] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="chatbot-title">
+        {/* Header */}
+        <div className="p-4 bg-primary text-white rounded-t-lg flex justify-between items-center">
+          <div className="flex items-center">
+            <SparklesIcon className="w-6 h-6 mr-2" />
+            <h2 id="chatbot-title" className="text-lg font-bold">V-Ken AI Assistant</h2>
+          </div>
+          <button onClick={onClose} className="text-white hover:bg-white/20 p-1 rounded-full">
+            <CloseIcon className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-grow p-4 overflow-y-auto bg-gray-50">
+          <div className="space-y-4">
+            {messages.map((msg, index) => (
+              <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] p-3 rounded-2xl ${msg.role === 'user' ? 'bg-primary text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                  <p className="text-sm">{msg.text}</p>
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] p-3 rounded-2xl bg-gray-200 text-gray-800 rounded-bl-none">
+                  <div className="flex items-center space-x-1.5">
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Form */}
+        <div className="p-4 border-t border-gray-200 bg-white rounded-b-lg">
+          <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Ask me anything..."
+              className="w-full p-2 border border-gray-300 rounded-full focus:ring-2 focus:ring-primary focus:border-transparent transition"
+              disabled={isLoading || !sessionId}
+            />
+            <button
+              type="submit"
+              className="bg-primary text-white p-2 rounded-full hover:bg-green-800 transition-colors disabled:bg-gray-400"
+              disabled={isLoading || !inputValue.trim() || !sessionId}
+              aria-label="Send message"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ChatbotModal;
