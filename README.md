@@ -50,14 +50,14 @@ This guide will walk you through deploying the entire application to **Render**,
     - **Environment**: `Node`.
     - **Region**: Choose a region closest to you (e.g., Frankfurt).
     - **Branch**: `main` (or your default branch).
-    - **Build Command**: `npm install --prefix backend && npx prisma generate --schema=./backend/prisma/schema.prisma`
-      *This command tells Render to install the backend's dependencies and prepare the database client.*
+    - **Build Command**: `npm install --prefix backend && npx prisma migrate deploy --schema=./backend/prisma/schema.prisma && npx prisma generate --schema=./backend/prisma/schema.prisma`
+      *This single command installs dependencies, runs the database migration, and prepares the Prisma client.*
     - **Start Command**: `npm start --prefix backend`
       *This command tells Render how to start your server.*
 
 5.  Scroll down to the **Environment** section. This is the most important part.
     - Click **Add Environment Variable**.
-    - You need to add three variables, using the "Secret File" feature is recommended but for simplicity you can add them directly for testing:
+    - You need to add three variables:
         1.  **Key**: `DATABASE_URL`
             - **Value**: Paste the database connection string you copied from Neon in Step 1.
         2.  **Key**: `API_KEY`
@@ -68,21 +68,9 @@ This guide will walk you through deploying the entire application to **Render**,
 6.  Select the **Free** instance type at the bottom of the page.
 7.  Click **Create Web Service**.
 
-### Step 4: Run the Database Migration
+### Step 4: Your App is Live!
 
-After you create the service, Render will start building your application. This might fail the first time because the database is still empty. We need to manually run the migration to create the tables.
-
-1.  Once your new service appears in the Render dashboard, go to its **Shell** tab.
-2.  Wait for the shell to connect.
-3.  Type the following command and press Enter:
-    ```bash
-    npx prisma migrate dev --name init --schema=./backend/prisma/schema.prisma
-    ```
-4.  This will set up your database schema. After it finishes, go to the **Events** tab or the **Logs** tab and trigger a new deploy by clicking "Manual Deploy" -> "Deploy latest commit".
-
-### Step 5: Your App is Live!
-
-Render will now build and deploy your application successfully. Once it's finished, you will see a "Live" status and a public URL at the top of the page (e.g., `https://vken-serve.onrender.com`).
+Render will now build and deploy your application. The build command will automatically set up your database schema. Once it's finished, you will see a "Live" status and a public URL at the top of the page (e.g., `https://vken-serve.onrender.com`).
 
 **This is the link you can share with your well-wishers to test the full application!**
 
@@ -95,7 +83,7 @@ If you want to run the app on your own computer for development.
 ### 1. Backend Setup
 
 1.  Navigate to the `backend` directory: `cd backend`.
-2.  Create a `.env` file and copy the contents from `.env.example`. Fill in your `DATABASE_URL`, `API_KEY`, and `JWT_SECRET`. For local development, you can use a local PostgreSQL database via Docker.
+2.  Create a `.env` file and fill in your `DATABASE_URL`, `API_KEY`, and `JWT_SECRET`. For local development, you can use a local PostgreSQL database via Docker.
 3.  Install dependencies: `npm install`.
 4.  Run the database migration: `npx prisma migrate dev --name init`.
 5.  Start the server: `npm run dev`. It will run on `http://localhost:5000`.
