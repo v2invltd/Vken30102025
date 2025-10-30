@@ -106,7 +106,7 @@ app.post('/api/auth/register', async (req, res) => {
         email,
         phone,
         passwordHash: hashedPassword,
-        role,
+        role: toPrismaEnum(role),
         kycVerified: false, // Default to false
       },
       select: { id: true, name: true, email: true, phone: true, role: true, kycVerified: true } // Don't return password hash
@@ -771,13 +771,13 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
                 bookingDate: new Date(),
                 serviceDate: new Date(serviceDate),
                 requestDetails,
-                bookingType,
+                bookingType: toPrismaEnum(bookingType),
                 otp,
                 totalAmount,
-                quotationStatus,
+                quotationStatus: quotationStatus ? toPrismaEnum(quotationStatus) : undefined,
                 dueDate: dueDate ? new Date(dueDate) : null,
                 paymentDate: paymentDate ? new Date(paymentDate) : null,
-                status: status || (bookingType === 'instant' ? 'Pending Provider Confirmation' : 'Pending Provider Confirmation'),
+                status: toPrismaEnum(status || (bookingType === 'instant' ? 'Pending Provider Confirmation' : 'Pending Provider Confirmation')),
                 quotationItems: quotationItems ? {
                     createMany: {
                         data: quotationItems.map(item => ({
@@ -857,7 +857,7 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
         }
         
         // --- Blacklisting Logic for Provider Rejection ---
-        if (isProvider && status === 'Cancelled' && existingBooking.status === 'Pending Provider Confirmation') {
+        if (isProvider && status === 'Cancelled' && existingBooking.status === 'PENDING_PROVIDER_CONFIRMATION') {
             const provider = await prisma.serviceProvider.findUnique({
                 where: { id: existingBooking.providerId },
             });
@@ -899,7 +899,7 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
         const updatedBooking = await prisma.booking.update({
             where: { id },
             data: {
-                status,
+                status: status ? toPrismaEnum(status) : undefined,
                 review: review ? {
                     upsert: {
                         create: {
@@ -917,7 +917,7 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
                     }
                 } : undefined,
                 chatHistory,
-                quotationStatus,
+                quotationStatus: quotationStatus ? toPrismaEnum(quotationStatus) : undefined,
                 totalAmount,
                 paymentDate: paymentDate ? new Date(paymentDate) : undefined,
                 dueDate: dueDate ? new Date(dueDate) : undefined,
