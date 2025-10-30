@@ -22,6 +22,7 @@ const {
   generateSearchSuggestions,
   getLocalHubData, // Import the new function
 } = require('./aiService'); // Import AI service functions
+const { ServiceCategory, Location } = require('./constants');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -256,7 +257,15 @@ app.get('/api/providers', authenticateToken, async (req, res) => {
         detailedServices: true,
       }
     });
-    res.status(200).json(providers);
+    
+    // Convert Prisma enums to frontend-friendly strings
+    const frontendProviders = providers.map(p => ({
+      ...p,
+      category: ServiceCategory[p.category] || p.category,
+      locations: p.locations.map(l => Location[l] || l),
+    }));
+    
+    res.status(200).json(frontendProviders);
   } catch (error) {
     console.error('Error fetching providers:', error);
     res.status(500).json({ message: 'Internal server error.' });
@@ -277,7 +286,14 @@ app.get('/api/providers/:id', authenticateToken, async (req, res) => {
         if (!provider) {
             return res.status(404).json({ message: 'Provider not found.' });
         }
-        res.status(200).json(provider);
+        
+        const frontendProvider = {
+            ...provider,
+            category: ServiceCategory[provider.category] || provider.category,
+            locations: provider.locations.map(l => Location[l] || l),
+        };
+        
+        res.status(200).json(frontendProvider);
     } catch (error) {
         console.error('Error fetching provider by ID:', error);
         res.status(500).json({ message: 'Internal server error.' });
@@ -306,7 +322,14 @@ app.get('/api/providers/search', authenticateToken, async (req, res) => {
                 detailedServices: true,
             },
         });
-        res.status(200).json(searchResults);
+        
+        const frontendProviders = searchResults.map(p => ({
+            ...p,
+            category: ServiceCategory[p.category] || p.category,
+            locations: p.locations.map(l => Location[l] || l),
+        }));
+        
+        res.status(200).json(frontendProviders);
     } catch (error) {
         console.error('Error searching providers:', error);
         res.status(500).json({ message: 'Internal server error during provider search.' });
@@ -378,7 +401,7 @@ app.post('/api/providers', authenticateToken, async (req, res) => {
                 if (!userNotifications.has(alert.userId)) {
                     userNotifications.set(alert.userId, {
                         userId: alert.userId,
-                        message: `A new ${newCategory} provider, '${providerName}', is now available in ${alert.location}!`,
+                        message: `A new ${ServiceCategory[newCategory] || newCategory} provider, '${providerName}', is now available in ${Location[alert.location] || alert.location}!`,
                         bookingId: null,
                         read: false,
                         timestamp: new Date()
@@ -401,8 +424,14 @@ app.post('/api/providers', authenticateToken, async (req, res) => {
             businessName: name,
         }
     });
+    
+    const frontendProvider = {
+        ...newProvider,
+        category: ServiceCategory[newProvider.category] || newProvider.category,
+        locations: newProvider.locations.map(l => Location[l] || l),
+    };
 
-    res.status(201).json({ message: 'Provider created successfully', provider: newProvider });
+    res.status(201).json({ message: 'Provider created successfully', provider: frontendProvider });
   } catch (error) {
     console.error('Error creating provider:', error);
     res.status(500).json({ message: 'Internal server error during provider creation.' });
@@ -454,14 +483,27 @@ app.put('/api/providers/:id', authenticateToken, async (req, res) => {
             await prisma.detailedService.createMany({
                 data: detailedServices.map(ds => ({ ...ds, providerId: id })),
             });
-            const finalProvider = await prisma.serviceProvider.findUnique({
+            const finalProviderFromDb = await prisma.serviceProvider.findUnique({
                 where: { id },
                 include: { detailedServices: true }
             });
+
+            const finalProvider = {
+              ...finalProviderFromDb,
+              category: ServiceCategory[finalProviderFromDb.category] || finalProviderFromDb.category,
+              locations: finalProviderFromDb.locations.map(l => Location[l] || l),
+            };
+
             return res.status(200).json({ message: 'Provider updated successfully', provider: finalProvider });
         }
         
-        res.status(200).json({ message: 'Provider updated successfully', provider: updatedProvider });
+        const finalProvider = {
+          ...updatedProvider,
+          category: ServiceCategory[updatedProvider.category] || updatedProvider.category,
+          locations: updatedProvider.locations.map(l => Location[l] || l),
+        };
+        
+        res.status(200).json({ message: 'Provider updated successfully', provider: finalProvider });
     } catch (error) {
         console.error('Error updating provider:', error);
         res.status(500).json({ message: 'Internal server error during provider update.' });
@@ -475,7 +517,14 @@ app.get('/api/alerts/my', authenticateToken, async (req, res) => {
             where: { userId: req.user.userId },
             orderBy: { createdAt: 'desc' },
         });
-        res.status(200).json(alerts);
+        
+        const frontendAlerts = alerts.map(a => ({
+          ...a,
+          serviceCategory: ServiceCategory[a.serviceCategory] || a.serviceCategory,
+          location: Location[a.location] || a.location,
+        }));
+        
+        res.status(200).json(frontendAlerts);
     } catch (error) {
         console.error('Error fetching job alerts:', error);
         res.status(500).json({ message: 'Internal server error.' });
@@ -496,7 +545,14 @@ app.post('/api/alerts', authenticateToken, async (req, res) => {
                 location: toPrismaEnum(location),
             },
         });
-        res.status(201).json({ message: 'Job alert created successfully', alert: newAlert });
+        
+        const frontendAlert = {
+            ...newAlert,
+            serviceCategory: ServiceCategory[newAlert.serviceCategory] || newAlert.serviceCategory,
+            location: Location[newAlert.location] || newAlert.location,
+        };
+        
+        res.status(201).json({ message: 'Job alert created successfully', alert: frontendAlert });
     } catch (error) {
         if (error.code === 'P2002') {
             return res.status(409).json({ message: 'An alert for this category and location already exists.' });

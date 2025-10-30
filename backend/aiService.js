@@ -1,5 +1,5 @@
 const { GoogleGenAI, Type } = require('@google/genai');
-const { SERVICE_CATEGORIES, LOCATIONS } = require('../constants'); // Assuming constants.js is in root
+const { SERVICE_CATEGORIES, LOCATIONS } = require('./constants');
 
 // Ensure API_KEY is loaded from environment variables
 if (!process.env.API_KEY) {
