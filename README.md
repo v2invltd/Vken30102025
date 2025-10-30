@@ -57,13 +57,13 @@ This guide will walk you through deploying the entire application to **Render**,
 
 5.  Scroll down to the **Environment** section. This is the most important part.
     - Click **Add Environment Variable**.
-    - You need to add three variables:
+    - You need to add three variables. **These must be set correctly for the application to run.**
         1.  **Key**: `DATABASE_URL`
             - **Value**: Paste the database connection string you copied from Neon in Step 1.
         2.  **Key**: `API_KEY`
-            - **Value**: Paste your Google Gemini API key.
+            - **Value**: Paste your Google Gemini API key. You can get one from [Google AI Studio](https://aistudio.google.com/).
         3.  **Key**: `JWT_SECRET`
-            - **Value**: Create a long, random, and secret string. You can use a password generator for this. *Example: `my_super_secret_and_long_jwt_key_for_vken_serve`*
+            - **Value**: Create a long, random, and secret string. You can use an online password generator for this. *Example: `my_super_secret_and_long_jwt_key_for_vken_serve`*
 
 6.  Select the **Free** instance type at the bottom of the page.
 7.  Click **Create Web Service**.
@@ -83,10 +83,20 @@ If you want to run the app on your own computer for development.
 ### 1. Backend Setup
 
 1.  Navigate to the `backend` directory: `cd backend`.
-2.  Create a `.env` file and fill in your `DATABASE_URL`, `API_KEY`, and `JWT_SECRET`. For local development, you can use a local PostgreSQL database via Docker.
+2.  Create a file named `.env` in the `backend` directory. Copy the following content into it and replace the placeholder values with your actual credentials:
+    ```
+    # PostgreSQL database connection string (e.g., from Neon or a local Docker instance)
+    DATABASE_URL="postgresql://user:password@host:port/database"
+
+    # Your Google Gemini API key from Google AI Studio
+    API_KEY="your_google_gemini_api_key"
+
+    # A long, random, secret string for signing authentication tokens
+    JWT_SECRET="your_super_secret_jwt_key"
+    ```
 3.  Install dependencies: `npm install`.
-4.  Run the database migration: `npx prisma migrate dev --name init`.
-5.  Start the server: `npm run dev`. It will run on `http://localhost:5000`.
+4.  Run the database migration to set up your database schema: `npx prisma migrate dev --name init`.
+5.  Start the development server: `npm run dev`. It will run on `http://localhost:5000`.
 
 ### 2. Frontend Setup
 
