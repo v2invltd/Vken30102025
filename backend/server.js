@@ -31,7 +31,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkey_please_change_th
 // --- Helper for Enum mapping ---
 const toPrismaEnum = (str) => {
   if (!str) return undefined;
-  return str.replace(/-/g, '_').toUpperCase();
+  // Converts "Some-Thing" or "Some Thing" to "SOME_THING"
+  return str.replace(/-/g, '_').replace(/ /g, '_').toUpperCase();
 };
 
 // Middleware
