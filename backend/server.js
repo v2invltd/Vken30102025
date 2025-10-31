@@ -54,9 +54,10 @@ const toPrismaEnum = (str) => {
 
 // Middleware
 app.use(cors()); // Enable CORS for all routes
-app.use(express.json()); // Parse JSON request bodies
+app.use(express.json({ limit: '10mb' })); // Parse JSON request bodies, increase limit for images
 
-// --- Helper for JWT authentication ---
+
+// --- JWT Authentication Helpers ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -72,6 +73,24 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+const optionalAuthenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) {
+        req.user = null; // No user, but continue
+        return next();
+    }
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            req.user = null; // Invalid token, treat as logged out
+        } else {
+            req.user = user; // Valid token, attach user
+        }
+        next();
+    });
+};
+
 
 // --- Push Notification Helper ---
 async function sendPushNotification(userId, payload) {
@@ -160,7 +179,7 @@ app.post('/api/auth/register', async (req, res) => {
     const token = jwt.sign(
         { userId: newUser.id, email: newUser.email, role: newUser.role },
         JWT_SECRET,
-        { expiresIn: '1h' }
+        { expiresIn: '24h' }
     );
 
     res.status(201).json({ message: 'User registered successfully', token, user: newUser });
@@ -193,7 +212,7 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: '1h' } // Token expires in 1 hour
+      { expiresIn: '24h' } // Token expires in 24 hours
     );
 
     res.status(200).json({
@@ -275,8 +294,8 @@ app.put('/api/users/me', authenticateToken, async (req, res) => {
 });
 
 
-// Service providers endpoints
-app.get('/api/providers', authenticateToken, async (req, res) => {
+// Service providers endpoints (PUBLIC)
+app.get('/api/providers', optionalAuthenticateToken, async (req, res) => {
   try {
     // Check for and lift expired blacklistings
     const expiredBlacklists = await prisma.serviceProvider.findMany({
@@ -289,15 +308,20 @@ app.get('/api/providers', authenticateToken, async (req, res) => {
         });
         console.log(`Reinstated ${expiredBlacklists.length} providers from blacklist.`);
     }
+    
+    let whereClause = { isBlacklisted: false };
+    if (req.user && req.user.userId) {
+        // If a user is logged in, allow them to see their own profile even if blacklisted
+        whereClause = {
+            OR: [
+                { isBlacklisted: false },
+                { ownerId: req.user.userId }
+            ]
+        };
+    }
 
-    // Fetch providers, filtering out blacklisted ones unless it's the current user's profile
     const providers = await prisma.serviceProvider.findMany({
-      where: {
-        OR: [
-          { isBlacklisted: false },
-          { ownerId: req.user.userId } // Always include the current user's own profile
-        ]
-      },
+      where: whereClause,
       include: {
         owner: {
             select: { id: true, name: true, email: true }
@@ -320,8 +344,8 @@ app.get('/api/providers', authenticateToken, async (req, res) => {
   }
 });
 
-// Get a single provider by ID
-app.get('/api/providers/:id', authenticateToken, async (req, res) => {
+// Get a single provider by ID (PUBLIC)
+app.get('/api/providers/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const provider = await prisma.serviceProvider.findUnique({
@@ -348,8 +372,8 @@ app.get('/api/providers/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Search providers (filtered by category and location)
-app.get('/api/providers/search', authenticateToken, async (req, res) => {
+// Search providers (filtered by category and location) (PUBLIC)
+app.get('/api/providers/search', async (req, res) => {
     const { category, location } = req.query;
 
     if (!category || !location) {
@@ -387,10 +411,12 @@ app.get('/api/providers/search', authenticateToken, async (req, res) => {
 
 app.post('/api/providers', authenticateToken, async (req, res) => {
   const {
-    name, category, locations, description,
+    businessName, category, locations, description,
     hourlyRate, logoUrl, coverImageUrl, expertise, detailedServices,
-    aiAutoAcceptEnabled, latitude, longitude, allowsInstantBooking
+    aiAutoAcceptEnabled, latitude, longitude, allowsInstantBooking, kraPin
   } = req.body;
+  
+  const name = businessName; // Use businessName as the provider's name
 
   if (!name || !category || !locations || !description || !hourlyRate) {
     return res.status(400).json({ message: 'Missing required provider fields.' });
@@ -413,15 +439,15 @@ app.post('/api/providers', authenticateToken, async (req, res) => {
         rating: 5.0,
         reviewsCount: 0,
         description,
-        hourlyRate,
+        hourlyRate: parseFloat(hourlyRate),
         logoUrl,
         coverImageUrl,
         expertise: { set: expertise || [] },
         availability: {},
         aiAutoAcceptEnabled: aiAutoAcceptEnabled || false,
         kycVerified: false,
-        latitude,
-        longitude,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
         allowsInstantBooking: allowsInstantBooking || false,
         isBlacklisted: false,
         detailedServices: {
@@ -470,6 +496,7 @@ app.post('/api/providers', authenticateToken, async (req, res) => {
         data: {
             role: 'PROVIDER',
             businessName: name,
+            kraPin: kraPin,
         }
     });
     
@@ -489,10 +516,12 @@ app.post('/api/providers', authenticateToken, async (req, res) => {
 app.put('/api/providers/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const {
-        name, category, locations, description,
+        businessName, category, locations, description,
         hourlyRate, logoUrl, coverImageUrl, expertise, gallery, detailedServices,
         availability, aiAutoAcceptEnabled, kycVerified, latitude, longitude, allowsInstantBooking
     } = req.body;
+    
+    const name = businessName; // Align with form field
 
     try {
         const existingProvider = await prisma.serviceProvider.findUnique({ where: { id } });
@@ -508,10 +537,10 @@ app.put('/api/providers/:id', authenticateToken, async (req, res) => {
             where: { id },
             data: {
                 name,
-                category: toPrismaEnum(category),
+                category: category ? toPrismaEnum(category) : undefined,
                 locations: locations ? { set: locations.map(toPrismaEnum) } : undefined,
                 description,
-                hourlyRate,
+                hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
                 logoUrl,
                 coverImageUrl,
                 expertise: expertise ? { set: expertise } : undefined,
@@ -519,8 +548,8 @@ app.put('/api/providers/:id', authenticateToken, async (req, res) => {
                 availability: availability,
                 aiAutoAcceptEnabled,
                 kycVerified,
-                latitude,
-                longitude,
+                latitude: latitude ? parseFloat(latitude) : undefined,
+                longitude: longitude ? parseFloat(longitude) : undefined,
                 allowsInstantBooking,
             },
             include: { detailedServices: true }
@@ -529,7 +558,7 @@ app.put('/api/providers/:id', authenticateToken, async (req, res) => {
         if (detailedServices) {
             await prisma.detailedService.deleteMany({ where: { providerId: id } });
             await prisma.detailedService.createMany({
-                data: detailedServices.map(ds => ({ ...ds, providerId: id })),
+                data: detailedServices.map(ds => ({ description: ds.description, name: ds.name, price: ds.price, providerId: id })),
             });
             const finalProviderFromDb = await prisma.serviceProvider.findUnique({
                 where: { id },
@@ -1114,12 +1143,17 @@ app.put('/api/notifications/mark-read', authenticateToken, async (req, res) => {
 
 // --- End of API Routes ---
 
+// Catch-all for API routes that don't exist. This must be after all API routes.
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ message: 'API endpoint not found.' });
+});
+
 // Serve static assets from the root directory of the project.
 const frontendPath = path.resolve(__dirname, '..');
 app.use(express.static(frontendPath));
 
-// For any GET request that doesn't match one of our API routes or a static file,
-// we send the main index.html file. This allows the React client-side router to take over.
+// For any GET request that doesn't match an API route or a static file,
+// send the main index.html file. This allows the React client-side router to take over.
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'), function(err) {
     if (err) {
