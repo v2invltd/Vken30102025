@@ -42,21 +42,21 @@ const UserRole = {
     PROVIDER: "Provider",
 };
 
-// Frontend string values mapped to backend Prisma Enum keys (UPPERCASE_SNAKE_CASE)
+// Backend Prisma Enum keys (UPPERCASE_SNAKE_CASE) mapped to Frontend string values
 const BookingStatus = {
-    'Pending Provider Confirmation': 'PENDING_PROVIDER_CONFIRMATION',
-    'Pending Customer Confirmation': 'PENDING_CUSTOMER_CONFIRMATION',
-    'Confirmed': 'CONFIRMED',
-    'InProgress': 'INPROGRESS',
-    'Completed': 'COMPLETED',
-    'Cancelled': 'CANCELLED'
+    PENDING_PROVIDER_CONFIRMATION: 'Pending Provider Confirmation',
+    PENDING_CUSTOMER_CONFIRMATION: 'Pending Customer Confirmation',
+    CONFIRMED: 'Confirmed',
+    INPROGRESS: 'InProgress',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled'
 };
 
 const QuotationStatus = {
-    'Draft': 'DRAFT',
-    'Sent': 'SENT',
-    'Accepted': 'ACCEPTED',
-    'Declined': 'DECLINED'
+    DRAFT: 'Draft',
+    SENT: 'Sent',
+    ACCEPTED: 'Accepted',
+    DECLINED: 'Declined'
 };
 
 
