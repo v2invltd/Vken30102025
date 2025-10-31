@@ -499,22 +499,30 @@ apiRouter.get('/notifications/my', authenticateToken, (req, res) => prisma.notif
 apiRouter.put('/notifications/mark-read', authenticateToken, (req, res) => prisma.notification.updateMany({ where: { userId: req.user.userId, read: false }, data: { read: true } }).then(() => res.sendStatus(200)).catch(() => res.sendStatus(500)));
 
 
+// CATCH-ALL FOR UNMATCHED API ROUTES
+// This must be the last route defined on the apiRouter
+apiRouter.use((req, res) => {
+    res.status(404).json({ message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+});
+
+
 // --- Mount Router and Define Fallbacks ---
 
 // 1. API Routes: Handle all requests that start with /api
 app.use('/api', apiRouter);
 
-// 2. API 404 Handler: Catches any /api request that didn't match.
-app.use('/api/*', (req, res) => {
-    res.status(404).json({ message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
-});
-
-// 3. Static Assets: Serve the frontend files from the project root.
+// 2. Static Assets: Serve the frontend files from the project root.
 const frontendPath = path.resolve(__dirname, '..');
 app.use(express.static(frontendPath));
 
-// 4. SPA Fallback: For any other GET request, send the index.html file.
+// 3. SPA Fallback: For any other GET request, send the index.html file.
 app.get('*', (req, res) => {
+    // If a request gets here but is for an API route, it's a mistake.
+    // This is a crucial safeguard against serving the SPA for a failed API call.
+    if (req.originalUrl.startsWith('/api/')) {
+        return res.status(404).json({ message: 'API GET endpoint not found. This is a fallback guard.' });
+    }
+    
     res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
         if (err) {
             console.error("Error sending SPA fallback file:", err);
@@ -523,10 +531,10 @@ app.get('*', (req, res) => {
     });
 });
 
-// 5. Final Global Error Handler for anything else.
+// 4. Final Global Error Handler for anything else (e.g., non-GET, non-/api requests).
 app.use((req, res, next) => {
     res.status(404).send(`Cannot ${req.method} ${req.path}`);
 });
 
 
-app.listen(PORT, () => console.log(`V-Ken Serve Backend running on port ${PORT}`));
+app.listen(PORT, () => console.log(`V-Ken Serve Backend running on port ${PORT}`))}

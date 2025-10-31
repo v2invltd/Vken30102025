@@ -10,6 +10,13 @@ export const LOCATION_IMAGES: { [key in Location]: string } = {
     [Location.NAKURU]: 'https://images.pexels.com/photos/235648/pexels-photo-235648.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
     [Location.ELDORET]: 'https://images.pexels.com/photos/3225517/pexels-photo-3225517.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
     [Location.MACHAKOS]: 'https://images.pexels.com/photos/1591373/pexels-photo-1591373.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.THIKA]: 'https://images.pexels.com/photos/450441/pexels-photo-450441.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.KIAMBU]: 'https://images.pexels.com/photos/266004/pexels-photo-266004.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.NYERI]: 'https://images.pexels.com/photos/1671325/pexels-photo-1671325.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.MERU]: 'https://images.pexels.com/photos/1049626/pexels-photo-1049626.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.WESTLANDS]: 'https://images.pexels.com/photos/169976/pexels-photo-169976.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.KILIMANI]: 'https://images.pexels.com/photos/731082/pexels-photo-731082.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
+    [Location.KAREN]: 'https://images.pexels.com/photos/247599/pexels-photo-247599.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
 };
 
 export const LOCATION_COORDINATES: { [key in Location]: { lat: number; lon: number } } = {
@@ -19,6 +26,13 @@ export const LOCATION_COORDINATES: { [key in Location]: { lat: number; lon: numb
     [Location.NAKURU]: { lat: -0.3031, lon: 36.0800 },
     [Location.ELDORET]: { lat: 0.5143, lon: 35.2698 },
     [Location.MACHAKOS]: { lat: -1.5182, lon: 37.2642 },
+    [Location.THIKA]: { lat: -1.0478, lon: 37.0725 },
+    [Location.KIAMBU]: { lat: -1.1714, lon: 36.8322 },
+    [Location.NYERI]: { lat: -0.4223, lon: 36.9492 },
+    [Location.MERU]: { lat: 0.0471, lon: 37.6498 },
+    [Location.WESTLANDS]: { lat: -1.2647, lon: 36.8020 },
+    [Location.KILIMANI]: { lat: -1.2965, lon: 36.7849 },
+    [Location.KAREN]: { lat: -1.3213, lon: 36.7067 },
 };
 
 export const KENYA_BOUNDS = {
@@ -36,6 +50,14 @@ export const HERO_IMAGES: { [key in Location]: string } = {
     [Location.NAKURU]: 'https://images.pexels.com/photos/1671324/pexels-photo-1671324.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
     [Location.ELDORET]: 'https://images.pexels.com/photos/259963/pexels-photo-259963.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
     [Location.MACHAKOS]: 'https://images.pexels.com/photos/3225528/pexels-photo-3225528.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    // New hero images
+    [Location.THIKA]: 'https://images.pexels.com/photos/1388056/pexels-photo-1388056.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    [Location.KIAMBU]: 'https://images.pexels.com/photos/2440471/pexels-photo-2440471.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    [Location.NYERI]: 'https://images.pexels.com/photos/210307/pexels-photo-210307.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    [Location.MERU]: 'https://images.pexels.com/photos/709552/pexels-photo-709552.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    [Location.WESTLANDS]: 'https://images.pexels.com/photos/3585093/pexels-photo-3585093.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    [Location.KILIMANI]: 'https://images.pexels.com/photos/3935320/pexels-photo-3935320.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
+    [Location.KAREN]: 'https://images.pexels.com/photos/189333/pexels-photo-189333.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
 };
 
 
@@ -252,4 +274,19 @@ export const LOCATION_SPECIFIC_TOUR_DETAILS: Partial<Record<Location, Partial<Re
             services: ["Ol Donyo Sabuk National Park", "Iveti Hills Hike", "Mua Hills Exploration"]
         }
     },
+    // New Tour details
+    [Location.NYERI]: {
+        [ServiceCategory.WILDLIFE]: {
+            title: "Aberdares & Mt. Kenya Treks",
+            description: "Explore the Aberdare Ranges and the foothills of Mount Kenya.",
+            services: ["Aberdare National Park Safari", "Solio Game Reserve", "Mount Kenya Forest Hikes"]
+        }
+    },
+    [Location.MERU]: {
+        [ServiceCategory.WILDLIFE]: {
+            title: "Meru National Park Adventure",
+            description: "Discover the untamed wilderness of Meru, famed for Elsa the Lioness.",
+            services: ["Meru National Park Safari", "Rhino Sanctuary Visit", "Kora National Park Expedition"]
+        }
+    }
 };

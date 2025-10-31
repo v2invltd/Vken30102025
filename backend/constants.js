@@ -8,6 +8,14 @@ const Location = {
   MACHAKOS: "Machakos",
   ELDORET: "Eldoret",
   KISUMU: "Kisumu",
+  // New granular locations
+  THIKA: "Thika",
+  KIAMBU: "Kiambu",
+  NYERI: "Nyeri",
+  MERU: "Meru",
+  WESTLANDS: "Westlands",
+  KILIMANI: "Kilimani",
+  KAREN: "Karen",
 };
 
 const ServiceCategory = {
