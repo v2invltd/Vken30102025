@@ -1,5 +1,3 @@
-
-
 // FIX: Removed self-import which caused circular dependency and declaration conflicts.
 
 export enum Location {
@@ -103,6 +101,7 @@ export interface User {
     role: UserRole;
     phone?: string;
     nationalId?: string;
+    kycVerified: boolean;
     // Provider specific
     businessName?: string;
     businessRegNo?: string;
@@ -110,7 +109,6 @@ export interface User {
     kraPin?: string;
     kraPinCertificate?: string | null;
     policeClearanceCertificate?: string | null;
-    kycVerified: boolean;
 }
 
 export interface Message {

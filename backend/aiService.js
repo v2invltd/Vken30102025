@@ -147,12 +147,28 @@ async function getLocalWeather(location) {
         }
 
         // Step 2: Use the search result to generate a structured JSON output
-        const summaryPrompt = `From this weather report: "${weatherText}", extract a very short, friendly description (e.g., 'Clear skies and pleasant at 25°C.') and suggest a single, appropriate emoji icon. Respond ONLY with a valid JSON object with "description" and "icon" keys.`;
+        const summaryPrompt = `From this weather report: "${weatherText}", extract a very short, friendly description (e.g., 'Clear skies and pleasant at 25°C.') and suggest a single, appropriate emoji icon.`;
 
         const formatResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: summaryPrompt,
-            config: { responseMimeType: "application/json" }
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        description: {
+                            type: Type.STRING,
+                            description: "A very short, friendly description of the weather."
+                        },
+                        icon: {
+                            type: Type.STRING,
+                            description: "A single, appropriate emoji icon for the weather."
+                        }
+                    },
+                    required: ['description', 'icon']
+                }
+            }
         });
 
         return robustJsonParse(formatResponse.text);
@@ -551,18 +567,30 @@ async function decideBookingAction(booking) {
       - Acknowledge reasonable requests.
       - Be cautious about vague, unusual, or last-minute requests.
       
-      Respond with a JSON object matching this schema:
-      {
-        "action": "'accept' or 'decline'",
-        "reason": "A brief, 1-sentence reason for your decision. e.g., 'The customer's request is clear and falls within our service hours.' or 'The request is too last-minute and we may not have availability.'"
-      }
+      Respond with a JSON object matching the schema.
     `;
 
     try {
         const response = await ai.models.generateContent({
             model,
             contents: prompt,
-            config: { responseMimeType: "application/json" }
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        action: {
+                            type: Type.STRING,
+                            description: "The decision, either 'accept' or 'decline'."
+                        },
+                        reason: {
+                            type: Type.STRING,
+                            description: "A brief, 1-sentence reason for the decision."
+                        }
+                    },
+                    required: ['action', 'reason']
+                }
+            }
         });
         const jsonText = response.text.trim();
         return robustJsonParse(jsonText);

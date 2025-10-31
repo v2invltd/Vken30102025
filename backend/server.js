@@ -515,14 +515,15 @@ app.use('/api', apiRouter);
 const frontendPath = path.resolve(__dirname, '..');
 app.use(express.static(frontendPath));
 
-// 3. SPA Fallback: For any other GET request, send the index.html file.
+// 3. SPA Fallback: For any GET request that is not for an API route or a static file,
+//    serve the index.html file. This is crucial for client-side routing.
 app.get('*', (req, res) => {
-    // If a request gets here but is for an API route, it's a mistake.
-    // This is a crucial safeguard against serving the SPA for a failed API call.
+    // A safeguard: if a GET request for an API endpoint slips through, send a JSON 404.
     if (req.originalUrl.startsWith('/api/')) {
-        return res.status(404).json({ message: 'API GET endpoint not found. This is a fallback guard.' });
+        return res.status(404).json({ message: `API GET endpoint not found: ${req.originalUrl}` });
     }
     
+    // For all other GET requests, serve the main HTML file for the React app.
     res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
         if (err) {
             console.error("Error sending SPA fallback file:", err);
@@ -531,9 +532,10 @@ app.get('*', (req, res) => {
     });
 });
 
-// 4. Final Global Error Handler for anything else (e.g., non-GET, non-/api requests).
+// 4. Final Global Error Handler: This catches any request that fell through,
+//    such as a POST/PUT/DELETE to a non-API route. It now returns a JSON error.
 app.use((req, res, next) => {
-    res.status(404).send(`Cannot ${req.method} ${req.path}`);
+    res.status(404).json({ message: `Endpoint not found: ${req.method} ${req.path}` });
 });
 
 
