@@ -12,40 +12,13 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 function robustJsonParse(text) {
     let jsonString = text.trim();
 
-    // Case 1: The response is wrapped in markdown ```json ... ```
-    const markdownMatch = jsonString.match(/```json\s*([\s\S]*?)\s*```/);
-    if (markdownMatch && markdownMatch[1]) {
-        jsonString = markdownMatch[1].trim();
-    } else {
-        // Case 2: The JSON is embedded in conversational text.
-        // Find the first opening bracket '{' or '['
-        const firstOpenBracket = jsonString.indexOf('{');
-        const firstOpenSquare = jsonString.indexOf('[');
-        
-        let startIndex = -1;
-        if (firstOpenBracket === -1) {
-            startIndex = firstOpenSquare;
-        } else if (firstOpenSquare === -1) {
-            startIndex = firstOpenBracket;
-        } else {
-            startIndex = Math.min(firstOpenBracket, firstOpenSquare);
-        }
-
-        if (startIndex > -1) {
-            // Find the last closing bracket '}' or ']'
-            const lastCloseBracket = jsonString.lastIndexOf('}');
-            const lastCloseSquare = jsonString.lastIndexOf(']');
-            const endIndex = Math.max(lastCloseBracket, lastCloseSquare);
-
-            if (endIndex > startIndex) {
-                // Slice out the potential JSON string.
-                jsonString = jsonString.substring(startIndex, endIndex + 1);
-            }
-        }
+    // Handle markdown code blocks, which Gemini often returns, using a regex
+    const match = jsonString.match(/```(json)?\s*([\s\S]+?)\s*```/);
+    if (match && match[2]) {
+        jsonString = match[2];
     }
 
     try {
-        // Attempt to parse the cleaned/extracted string.
         return JSON.parse(jsonString);
     } catch (e) {
         console.error("JSON Parsing Error:", e.message);
@@ -181,6 +154,7 @@ async function getLocalNews(location) {
         }
 
         return groundingChunks
+            .filter(chunk => chunk.web) // Only process chunks that have a 'web' property
             .map(chunk => ({
                 title: chunk.web.title,
                 url: chunk.web.uri,
@@ -204,11 +178,13 @@ async function getLocalEvents(location) {
       config: { tools: [{ googleSearch: {} }] }
     });
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-     return groundingChunks.map(chunk => ({
-      title: chunk.web.title,
-      url: chunk.web.uri,
-      date: 'Upcoming', // Search grounding doesn't reliably provide dates, so we use a generic label
-    })).slice(0, 3);
+     return groundingChunks
+        .filter(chunk => chunk.web) // Only process chunks that have a 'web' property
+        .map(chunk => ({
+            title: chunk.web.title,
+            url: chunk.web.uri,
+            date: 'Upcoming', // Search grounding doesn't reliably provide dates, so we use a generic label
+        })).slice(0, 3);
   } catch (error) {
     console.error(`Error getting events for ${location}:`, error);
     return [];

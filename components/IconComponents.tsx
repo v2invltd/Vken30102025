@@ -207,6 +207,23 @@ export const GlobeIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
+export const LocalHubIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    viewBox="0 0 100 100"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <circle cx="50" cy="50" r="45" />
+    <path d="M20 70 A 30 30 0 0 1 80 70" />
+    <path d="M25 40 A 25 25 0 0 1 75 40" />
+  </svg>
+);
+
 
 // New Service Category Icon component
 export const ServiceCategoryIcon: React.FC<{ category: ServiceCategory; className?: string }> = ({ category, className }) => {

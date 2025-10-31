@@ -16,7 +16,15 @@ steps:
       - 'push'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:$COMMIT_SHA'
 
-  # Step 3: Deploy the new image to Cloud Run.
+  # Step 3: Run database migrations using the just-built image.
+  # This ensures the database schema is updated before the new service version goes live.
+  # It uses the DATABASE_URL secret made available through 'secretEnv'.
+  - name: '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:$COMMIT_SHA'
+    entrypoint: 'npx'
+    args: ['prisma', 'migrate', 'deploy']
+    secretEnv: ['DATABASE_URL']
+
+  # Step 4: Deploy the new image to Cloud Run.
   # This step makes the service live and connects it to the database and secrets.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -63,6 +71,6 @@ availableSecrets:
       env: 'VAPID_PRIVATE_KEY'
 
 # Specify build options.
-# This logging option creates a regional bucket for logs automatically, resolving common permission errors.
+# This option sends logs directly to Cloud Logging, avoiding Cloud Storage bucket issues.
 options:
-  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+  logging: CLOUD_LOGGING_ONLY

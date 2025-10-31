@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../contexts/AppContext';
-import { GlobeIcon, LocationIcon } from './IconComponents';
+import { LocalHubIcon } from './IconComponents';
 import * as api from '../frontend/services/api';
 import { LocalHubData } from '../frontend/services/api';
 
@@ -113,7 +113,7 @@ const LocalHub: React.FC = () => {
         <div className="bg-gray-50 py-12 animate-fade-in">
             <div className="container mx-auto px-6">
                 <div className="text-center mb-10">
-                    <GlobeIcon className="w-16 h-16 text-primary mx-auto mb-2" />
+                    <LocalHubIcon className="w-16 h-16 text-primary mx-auto mb-2" />
                     <h1 className="text-4xl font-bold text-gray-800">Local Hub</h1>
                     {selectedLocation && (
                         <p className="text-xl text-gray-600 mt-2">

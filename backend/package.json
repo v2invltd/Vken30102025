@@ -4,7 +4,7 @@
   "description": "Backend server for V-Ken Serve application",
   "main": "server.js",
   "scripts": {
-    "start": "npm run db:migrate && node server.js",
+    "start": "node server.js",
     "dev": "nodemon server.js",
     "db:migrate": "prisma migrate deploy",
     "prisma:migrate": "prisma migrate dev --name init",
