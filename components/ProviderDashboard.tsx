@@ -260,7 +260,7 @@ const AvailabilityCalendar: React.FC<{ provider: ServiceProvider, onUpdateAvaila
         <div className="bg-white p-6 rounded-lg shadow-md border">
             <h3 className="text-xl font-semibold mb-4">Manage Your Availability</h3>
              <div className="flex justify-between items-center mb-4">
-                <button onClick={goToPrevWeek} className="p-2 rounded-full hover:bg-gray-100" disabled={currentWeekStart.getTime() < today.getTime()}>&lt; Previous Week</button>
+                <button onClick={goToPrevWeek} className="p-2 rounded-full hover:bg-gray-100">&lt; Previous Week</button>
                 <h3 className="text-lg font-semibold text-gray-800">{formatDateRange()}</h3>
                 <button onClick={goToNextWeek} className="p-2 rounded-full hover:bg-gray-100">Next Week &gt;</button>
             </div>

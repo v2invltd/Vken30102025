@@ -152,7 +152,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ provider, user, onSendReque
     return (
         <div>
             <div className="flex justify-between items-center mb-4">
-                <button type="button" onClick={goToPrevMonth} className="p-2 rounded-full hover:bg-gray-100" disabled={isPaymentMode || new Date(year, month - 1, 1).getTime() < today.getTime()}>
+                <button type="button" onClick={goToPrevMonth} className="p-2 rounded-full hover:bg-gray-100" disabled={isPaymentMode}>
                     <svg className="w-6 h-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
                 </button>
                 <h3 className="text-lg font-semibold text-gray-800">
