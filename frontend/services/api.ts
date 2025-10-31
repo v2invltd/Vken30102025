@@ -28,21 +28,45 @@ async function fetchData<T>(endpoint: string, options?: RequestInit): Promise<T>
     // Handle unauthorized/forbidden access, e.g., redirect to login
     console.error('Authentication failed. Please log in again.');
     localStorage.removeItem('jwtToken');
-    // Optionally trigger a logout action in your app context
-    throw new Error('Unauthorized');
+    // Force a reload to clear all application state and redirect to home
+    window.location.href = '/';
+    throw new Error('Unauthorized. Please log in again.');
   }
 
+  // Read the response as text first to handle all content types gracefully
+  const responseText = await response.text();
+
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.message || `API request failed: ${response.statusText}`);
+    let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+    const contentType = response.headers.get('content-type');
+
+    if (contentType && contentType.includes('application/json')) {
+        try {
+            const errorData = JSON.parse(responseText);
+            errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+            errorMessage = "Server returned a malformed JSON error response.";
+        }
+    } else {
+        // The response is HTML or plain text, not JSON.
+        console.error("Received non-JSON error response body:", responseText);
+        errorMessage = `Server returned a non-JSON error (status ${response.status}). Check server logs for details.`;
+    }
+    throw new Error(errorMessage);
   }
   
-  // Handle 204 No Content for cases like marking notifications read
-  if (response.status === 204) {
+  // Handle empty responses (e.g., 204 No Content)
+  if (response.status === 204 || responseText.length === 0) {
     return {} as T;
   }
 
-  return response.json();
+  // Try to parse the successful response text as JSON
+  try {
+    return JSON.parse(responseText);
+  } catch (e) {
+    console.error("Failed to parse successful response as JSON. Body:", responseText);
+    throw new Error("Received a malformed JSON response from the server.");
+  }
 }
 
 // --- Local Hub API ---

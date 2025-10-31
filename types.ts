@@ -1,5 +1,6 @@
 
 
+// FIX: Removed self-import which caused circular dependency and declaration conflicts.
 
 export enum Location {
   NAIROBI = "Nairobi",
@@ -101,10 +102,10 @@ export interface User {
     // Provider specific
     businessName?: string;
     businessRegNo?: string;
-    idDocument?: File | null;
+    idDocument?: string | null;
     kraPin?: string;
-    kraPinCertificate?: File | null;
-    policeClearanceCertificate?: File | null;
+    kraPinCertificate?: string | null;
+    policeClearanceCertificate?: string | null;
     kycVerified: boolean;
 }
 
@@ -162,8 +163,8 @@ export interface NewProviderData {
   businessName: string;
   businessRegNo?: string;
   kraPin: string;
-  kraPinCertificate: File;
-  policeClearanceCertificate: File;
+  kraPinCertificate: string;
+  policeClearanceCertificate: string;
   category: ServiceCategory;
   locations: Location[];
   hourlyRate: number;

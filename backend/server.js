@@ -1114,13 +1114,23 @@ app.put('/api/notifications/mark-read', authenticateToken, async (req, res) => {
 
 // --- End of API Routes ---
 
-// Serve static files from the React app's root directory
-app.use(express.static(path.join(__dirname, '..')));
+// Serve static assets from the root directory of the project.
+const frontendPath = path.resolve(__dirname, '..');
+app.use(express.static(frontendPath));
 
-// Fallback for any other route - serve the React app's index.html
+// For any GET request that doesn't match one of our API routes or a static file,
+// we send the main index.html file. This allows the React client-side router to take over.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../index.html'));
+  res.sendFile(path.join(frontendPath, 'index.html'), function(err) {
+    if (err) {
+      // This error will be triggered if index.html itself is not found,
+      // which would indicate a server configuration problem.
+      console.error('Error sending index.html:', err);
+      res.status(500).send(err);
+    }
+  });
 });
+
 
 // Start the server
 app.listen(PORT, () => {

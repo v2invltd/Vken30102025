@@ -15,6 +15,33 @@ interface ProviderRegistrationModalProps {
   onShowTerms: (type: LegalDocType) => void;
 }
 
+const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
+
+const FileInput: React.FC<{ label: string; selectedFileName: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required: boolean; accept: string }> = ({ label, selectedFileName, onChange, required, accept }) => {
+    const inputId = `file-input-${label.replace(/\s+/g, '-')}`;
+    return (
+        <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+            <div className="flex items-center">
+                <label htmlFor={inputId} className="cursor-pointer bg-primary-light text-primary font-semibold py-2 px-4 rounded-l-md hover:bg-primary-light/80 whitespace-nowrap transition-colors">
+                    Choose File
+                </label>
+                <input id={inputId} type="file" onChange={onChange} className="sr-only" required={required} accept={accept} />
+                <div className="flex-grow p-2 border border-l-0 border-gray-300 rounded-r-md text-sm text-gray-500 truncate">
+                    {selectedFileName || 'No file chosen'}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ServicesManagementTab: React.FC<{ provider: Partial<ServiceProvider>; onSave: (services: DetailedService[]) => void }> = ({ provider, onSave }) => {
     const [services, setServices] = useState<DetailedService[]>(
         provider.detailedServices && provider.detailedServices.length > 0
@@ -114,9 +141,10 @@ const ProviderRegistrationModal: React.FC<ProviderRegistrationModalProps> = ({ o
     const [locationsDropdownOpen, setLocationsDropdownOpen] = useState(false);
     const locationsRef = useRef<HTMLDivElement>(null);
 
-    // Placeholder for document files, actual upload/storage not handled in this demo's backend for simplicity
-    const [kraPinCertificate, setKraPinCertificate] = useState<File | null>(null);
-    const [policeClearanceCertificate, setPoliceClearanceCertificate] = useState<File | null>(null);
+    const [kraPinCertificate, setKraPinCertificate] = useState<string | null>(null);
+    const [kraPinCertificateName, setKraPinCertificateName] = useState('');
+    const [policeClearanceCertificate, setPoliceClearanceCertificate] = useState<string | null>(null);
+    const [policeClearanceCertificateName, setPoliceClearanceCertificateName] = useState('');
     
     const [isTourProvider, setIsTourProvider] = useState(false);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -143,8 +171,8 @@ const ProviderRegistrationModal: React.FC<ProviderRegistrationModalProps> = ({ o
             if (initialData.expertise) setExpertiseInput(initialData.expertise.join(', '));
             // In a real app, you'd fetch document status, not the files directly
             // For demo: assume they are "on file" if editing
-            setKraPinCertificate(new File([], "kra_certificate.pdf")); 
-            setPoliceClearanceCertificate(new File([], "police_clearance.pdf"));
+            setKraPinCertificateName("kra_certificate.pdf"); 
+            setPoliceClearanceCertificateName("police_clearance.pdf");
             setAgreedToTerms(true);
             if (initialData.kraPin) { // If KRA PIN exists, mark as verified
                 setKraPinStatus('verified');
@@ -218,6 +246,32 @@ const ProviderRegistrationModal: React.FC<ProviderRegistrationModalProps> = ({ o
         } else {
             setKraPinStatus('error');
             setKraPinMessage(result.message);
+        }
+    };
+
+    const handleKraFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            try {
+                const dataUrl = await fileToDataUrl(file);
+                setKraPinCertificate(dataUrl);
+                setKraPinCertificateName(file.name);
+            } catch (error) {
+                toast.error("Failed to read KRA certificate file.");
+            }
+        }
+    };
+
+    const handlePoliceFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            try {
+                const dataUrl = await fileToDataUrl(file);
+                setPoliceClearanceCertificate(dataUrl);
+                setPoliceClearanceCertificateName(file.name);
+            } catch (error) {
+                toast.error("Failed to read police clearance file.");
+            }
         }
     };
 
@@ -351,8 +405,20 @@ const ProviderRegistrationModal: React.FC<ProviderRegistrationModalProps> = ({ o
                                 {kraPinStatus === 'error' && <div className="mt-2 text-sm text-red-600 bg-red-50 p-2 rounded-md flex items-center"><WarningIcon className="w-5 h-5 mr-2"/>{kraPinMessage}</div>}
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium text-gray-700 mb-1">KRA PIN Certificate</label><input type="file" onChange={(e) => setKraPinCertificate(e.target.files?.[0] || null)} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary-light/80" required={!isEditMode} /></div>
-                                <div><label className="block text-sm font-medium text-gray-700 mb-1">Police Clearance Certificate</label><input type="file" onChange={(e) => setPoliceClearanceCertificate(e.target.files?.[0] || null)} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary-light/80" required={!isEditMode} /></div>
+                               <FileInput 
+                                    label="KRA PIN Certificate"
+                                    selectedFileName={kraPinCertificateName}
+                                    onChange={handleKraFileChange}
+                                    required={!isEditMode}
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                />
+                                <FileInput 
+                                    label="Police Clearance Certificate"
+                                    selectedFileName={policeClearanceCertificateName}
+                                    onChange={handlePoliceFileChange}
+                                    required={!isEditMode}
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                />
                             </div>
                         </div>
                     )}
