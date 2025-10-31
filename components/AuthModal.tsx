@@ -2,7 +2,6 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
 import { CloseIcon } from './IconComponents';
-import VerificationOtpModal from './VerificationOtpModal';
 import { LegalDocType } from '../types';
 import { useAppContext } from '../contexts/AppContext';
 import * as api from '../frontend/services/api'; // Import the new API service
@@ -11,7 +10,7 @@ import PasswordStrengthMeter from './PasswordStrengthMeter';
 import PhoneNumberInput from './PhoneNumberInput';
 
 interface AuthModalProps {
-  onAuthSuccess: (user: { name: string; email: string; phone: string; role: UserRole; id?: string }, isNewUser: boolean, token?: string) => void;
+  onAuthSuccess: (user: User, isNewUser: boolean, token?: string) => void;
   onProviderRegister: (user: { name: string; email: string; phone: string }) => void;
   onShowTerms: (type: LegalDocType) => void;
   promptMessage?: string;
@@ -31,8 +30,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
-
   const onClose = () => dispatch({ type: 'CLOSE_MODAL' });
   const openForgotPasswordModal = () => dispatch({ type: 'OPEN_MODAL', payload: { type: 'forgotPassword' } });
 
@@ -42,23 +39,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
       setPhone('+254'); // Force Kenyan prefix for providers
     }
   };
-
-  const handleRegistrationAfterVerification = async () => {
-    setIsVerificationModalOpen(false);
-    setIsLoading(true);
-    try {
-        const response = await api.registerUser({ name, email, phone, password, role });
-        // UNIFIED FLOW: Always call onAuthSuccess to log the user in immediately.
-        onAuthSuccess({ ...response.user, phone: response.user.phone || '' }, true, response.token);
-        toast.success("Registration successful! Welcome aboard.");
-    } catch (err: any) {
-        setError(err.message || "Registration failed. Please try again.");
-        console.error("Registration error:", err);
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,20 +52,20 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
         return;
       }
       try {
-        // Step 1: Trigger OTP sending
-        await api.sendWhatsappOtp(phone);
-        setIsLoading(false);
-        // Step 2: Open OTP modal for verification
-        setIsVerificationModalOpen(true);
+        // Direct registration without OTP verification
+        const response = await api.registerUser({ name, email, phone, password, role });
+        onAuthSuccess(response.user, true, response.token);
+        toast.success("Registration successful! Welcome aboard.");
       } catch (err: any) {
-        setError(err.message || "Could not send OTP. Please check the number and try again.");
-        console.error("OTP sending error:", err);
+        setError(err.message || "Registration failed. Please try again.");
+        console.error("Registration error:", err);
+      } finally {
         setIsLoading(false);
       }
     } else { // Login
       try {
         const response = await api.loginUser({ email, password });
-        onAuthSuccess({ ...response.user, phone: response.user.phone || '' }, false, response.token);
+        onAuthSuccess(response.user, false, response.token);
         toast.success("Logged in successfully!");
       } catch (err: any) {
         setError(err.message || "Login failed. Please check your credentials.");
@@ -235,14 +215,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
           </div>
         </div>
       </div>
-      {isVerificationModalOpen && (
-        <VerificationOtpModal
-          verificationType="WhatsApp"
-          identifier={phone}
-          onClose={() => setIsVerificationModalOpen(false)}
-          onVerified={handleRegistrationAfterVerification}
-        />
-      )}
     </>
   );
 };

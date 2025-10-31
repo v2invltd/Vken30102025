@@ -23,7 +23,14 @@ const {
   generateSearchSuggestions,
   getLocalHubData, // Import the new function
 } = require('./aiService'); // Import AI service functions
-const { ServiceCategory, Location } = require('./constants');
+const { 
+  UserRole,
+  ServiceCategory,
+  Location,
+  BookingStatus,
+  QuotationStatus,
+  BookingType,
+} = require('./constants');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -46,16 +53,50 @@ const toPrismaEnum = (str) => {
   if (!str) return undefined;
   // Replaces any sequence of non-alphanumeric characters with a single underscore,
   // trims leading/trailing underscores, and converts to uppercase.
-  // This robustly handles inputs like "Gardening & Landscaping", "House-Keeping", etc.
-  return str.replace(/[^a-zA-Z0-9]+/g, '_')
-            .replace(/^_+|_+$/g, '')
-            .toUpperCase();
+  return str.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/[\s-]+/g, '_').toUpperCase();
 };
 
 // Middleware
 app.use(cors()); // Enable CORS for all routes
 app.use(express.json({ limit: '10mb' })); // Parse JSON request bodies, increase limit for images
 
+
+// --- Data Mapping Helpers (Backend -> Frontend) ---
+const toFrontendUser = (user) => {
+    if (!user) return null;
+    const { passwordHash, pushSubscription, ...rest } = user; // Exclude sensitive data
+    return {
+        ...rest,
+        role: UserRole[user.role] || user.role,
+    };
+};
+
+const toFrontendProvider = (provider) => {
+    if (!provider) return null;
+    // Recursively map nested objects like 'owner'
+    const { owner, ...rest } = provider;
+    return {
+        ...rest,
+        category: ServiceCategory[provider.category] || provider.category,
+        locations: provider.locations.map(l => Location[l] || l),
+        owner: owner ? toFrontendUser(owner) : undefined,
+    };
+};
+
+const toFrontendBooking = (booking) => {
+    if (!booking) return null;
+    // Recursively map nested provider and customer
+    const { provider, customer, quotationItems, ...rest } = booking;
+    return {
+        ...rest,
+        status: BookingStatus[booking.status] || booking.status,
+        quotationStatus: QuotationStatus[booking.quotationStatus] || booking.quotationStatus,
+        bookingType: BookingType[booking.bookingType] || booking.bookingType,
+        provider: provider ? toFrontendProvider(provider) : undefined,
+        customer: customer ? toFrontendUser(customer) : undefined,
+        quotationItems: quotationItems || [],
+    };
+};
 
 // --- JWT Authentication Helpers ---
 const authenticateToken = (req, res, next) => {
@@ -105,14 +146,12 @@ async function sendPushNotification(userId, payload) {
     });
 
     if (user && user.pushSubscription) {
-      // The subscription object is stored as JSON in the database
       const subscription = user.pushSubscription;
       await webpush.sendNotification(subscription, JSON.stringify(payload));
       console.log(`Push notification sent to user ${userId}`);
     }
   } catch (error) {
     console.error(`Error sending push notification to user ${userId}:`, error.body || error);
-    // If subscription is expired or invalid (e.g., 404 or 410 status), delete it
     if (error.statusCode === 404 || error.statusCode === 410) {
       console.log(`Subscription for user ${userId} is invalid. Removing from DB.`);
       await prisma.user.update({
@@ -123,46 +162,38 @@ async function sendPushNotification(userId, payload) {
   }
 }
 
+// --- API Router Setup ---
+const apiRouter = express.Router();
 
 // --- API Routes ---
+// All API logic is now attached to `apiRouter`. The '/api' prefix is handled when mounting the router.
 
-// General API status
-app.get('/api', (req, res) => {
-  res.json({ message: 'Welcome to the V-Ken Serve API! Database connected.' });
-});
+apiRouter.get('/', (req, res) => res.json({ message: 'Welcome to the V-Ken Serve API!' }));
 
-// New Local Hub Endpoint - Made public by removing authenticateToken
-app.get('/api/local-hub/:location', async (req, res) => {
+apiRouter.get('/local-hub/:location', async (req, res) => {
     const { location } = req.params;
-    if (!location) {
-        return res.status(400).json({ message: 'Location parameter is required.' });
-    }
     try {
         const hubData = await getLocalHubData(location);
         res.status(200).json(hubData);
     } catch (error) {
-        console.error(`Error fetching local hub data for ${location}:`, error);
         res.status(500).json({ message: 'Failed to fetch local hub data.' });
     }
 });
 
-
-// User registration endpoint
-app.post('/api/auth/register', async (req, res) => {
+apiRouter.post('/auth/register', async (req, res) => {
+  console.log("--- Received registration request ---");
+  console.log("Body:", req.body);
   const { name, email, phone, password, role } = req.body;
-
   if (!name || !email || !password || !role) {
-    return res.status(400).json({ message: 'Please provide name, email, password, and role.' });
+    return res.status(400).json({ message: 'Missing required fields.' });
   }
 
   try {
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
+    if (await prisma.user.findUnique({ where: { email } })) {
       return res.status(409).json({ message: 'User with this email already exists.' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10); // Hash the password
-
+    const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await prisma.user.create({
       data: {
         name,
@@ -170,1003 +201,330 @@ app.post('/api/auth/register', async (req, res) => {
         phone,
         passwordHash: hashedPassword,
         role: toPrismaEnum(role),
-        kycVerified: false, // Default to false
+        kycVerified: false,
       },
-      select: { id: true, name: true, email: true, phone: true, role: true, kycVerified: true } // Don't return password hash
     });
-
-    // Generate JWT token for the newly registered user for immediate login
-    const token = jwt.sign(
-        { userId: newUser.id, email: newUser.email, role: newUser.role },
-        JWT_SECRET,
-        { expiresIn: '24h' }
-    );
-
-    res.status(201).json({ message: 'User registered successfully', token, user: newUser });
+    console.log("--- User created successfully in DB ---", newUser.id);
+    const token = jwt.sign({ userId: newUser.id, email: newUser.email, role: newUser.role }, JWT_SECRET, { expiresIn: '24h' });
+    res.status(201).json({ message: 'User registered successfully', token, user: toFrontendUser(newUser) });
   } catch (error) {
-    console.error('Error during registration:', error);
+    console.error('--- REGISTRATION ERROR ---');
+    console.error(error); // Log the full error
     res.status(500).json({ message: 'Internal server error during registration.' });
   }
 });
 
-// User login endpoint
-app.post('/api/auth/login', async (req, res) => {
+apiRouter.post('/auth/login', async (req, res) => {
+  console.log("--- Received login request ---");
+  console.log("Body:", { email: req.body.email, password: '[REDACTED]' });
   const { email, password } = req.body;
-
   if (!email || !password) {
-    return res.status(400).json({ message: 'Please provide email and password.' });
+    return res.status(400).json({ message: 'Email and password are required.' });
   }
 
   try {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
+    if (!user || !await bcrypt.compare(password, user.passwordHash)) {
+      console.warn(`Login failed for email: ${email}`);
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
-
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid credentials.' });
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '24h' } // Token expires in 24 hours
-    );
-
-    res.status(200).json({
-      message: 'Logged in successfully',
-      token,
-      user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, kycVerified: user.kycVerified, businessName: user.businessName, businessRegNo: user.businessRegNo, kraPin: user.kraPin, nationalId: user.nationalId } // Return basic user info
-    });
+    console.log("--- User logged in successfully ---", user.id);
+    const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+    res.status(200).json({ message: 'Logged in successfully', token, user: toFrontendUser(user) });
   } catch (error) {
-    console.error('Error during login:', error);
-    res.status(500).json({ message: 'Internal server error during login.' });
+    console.error('--- LOGIN ERROR ---');
+    console.error(error);
+    res.status(500).json({ message: 'Internal server error.' });
   }
 });
 
-app.post('/api/auth/forgot-password', async (req, res) => {
-    const { email } = req.body;
-    if (!email) {
-        return res.status(400).json({ message: 'Email is required.' });
-    }
-    // In a real app, you would generate a unique token, save it to the DB with an expiry,
-    // and email a reset link to the user.
-    console.log(`Password reset requested for email: ${email}. (This is a mock response)`);
-    res.status(200).json({ message: 'If an account with that email exists, a password reset link has been sent.' });
+apiRouter.post('/auth/forgot-password', (req, res) => {
+    console.log(`Password reset requested for email: ${req.body.email}.`);
+    res.status(200).json({ message: 'If an account exists, a reset link has been sent.' });
 });
 
-// Mock endpoint for sending WhatsApp OTP
-app.post('/api/auth/send-whatsapp-otp', (req, res) => {
-    const { phone } = req.body;
-    if (!phone) {
-        return res.status(400).json({ message: 'Phone number is required.' });
-    }
-    // In a real application, this is where you would integrate with a service like Twilio's WhatsApp API.
-    // For this demo, we just log it and return success.
-    console.log(`--- MOCK WHATSAPP OTP ---`);
-    console.log(`Sending OTP '1234' to WhatsApp number: ${phone}`);
-    console.log(`-------------------------`);
-    res.status(200).json({ message: `OTP has been sent to ${phone} via WhatsApp.` });
-});
-
-
-// Get/Update current user profile (protected route example)
-app.get('/api/users/me', authenticateToken, async (req, res) => {
+apiRouter.get('/users/me', authenticateToken, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({
-            where: { id: req.user.userId },
-            select: { id: true, name: true, email: true, phone: true, nationalId: true, role: true, businessName: true, businessRegNo: true, kraPin: true, kycVerified: true }
-        });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found.' });
-        }
-        res.status(200).json(user);
+        const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+        res.status(200).json(toFrontendUser(user));
     } catch (error) {
-        console.error('Error fetching user profile:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-app.put('/api/users/me', authenticateToken, async (req, res) => {
-    const { phone, nationalId, businessName, businessRegNo, kraPin, kycVerified, name } = req.body;
+apiRouter.put('/users/me', authenticateToken, async (req, res) => {
     try {
         const updatedUser = await prisma.user.update({
             where: { id: req.user.userId },
-            data: {
-                name,
-                phone,
-                nationalId,
-                businessName,
-                businessRegNo,
-                kraPin,
-                kycVerified, // This should ideally be set by an admin after document review, but for demo it's allowed here
-            },
-            select: { id: true, name: true, email: true, phone: true, nationalId: true, role: true, businessName: true, businessRegNo: true, kraPin: true, kycVerified: true }
+            data: req.body,
         });
-        res.status(200).json({ message: 'User profile updated successfully', user: updatedUser });
+        res.status(200).json({ message: 'Profile updated', user: toFrontendUser(updatedUser) });
     } catch (error) {
-        console.error('Error updating user profile:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-
-// Service providers endpoints (PUBLIC)
-app.get('/api/providers', optionalAuthenticateToken, async (req, res) => {
+apiRouter.get('/providers', optionalAuthenticateToken, async (req, res) => {
   try {
-    // Check for and lift expired blacklistings
-    const expiredBlacklists = await prisma.serviceProvider.findMany({
-        where: { isBlacklisted: true, blacklistEndDate: { lte: new Date() } }
+    await prisma.serviceProvider.updateMany({
+        where: { isBlacklisted: true, blacklistEndDate: { lte: new Date() } },
+        data: { isBlacklisted: false, blacklistEndDate: null }
     });
-    if (expiredBlacklists.length > 0) {
-        await prisma.serviceProvider.updateMany({
-            where: { id: { in: expiredBlacklists.map(p => p.id) } },
-            data: { isBlacklisted: false, blacklistEndDate: null }
-        });
-        console.log(`Reinstated ${expiredBlacklists.length} providers from blacklist.`);
-    }
     
     let whereClause = { isBlacklisted: false };
-    if (req.user && req.user.userId) {
-        // If a user is logged in, allow them to see their own profile even if blacklisted
-        whereClause = {
-            OR: [
-                { isBlacklisted: false },
-                { ownerId: req.user.userId }
-            ]
-        };
+    if (req.user?.userId) {
+        whereClause = { OR: [{ isBlacklisted: false }, { ownerId: req.user.userId }] };
     }
 
-    const providers = await prisma.serviceProvider.findMany({
-      where: whereClause,
-      include: {
-        owner: {
-            select: { id: true, name: true, email: true }
-        },
-        detailedServices: true,
-      }
-    });
-    
-    // Convert Prisma enums to frontend-friendly strings
-    const frontendProviders = providers.map(p => ({
-      ...p,
-      category: ServiceCategory[p.category] || p.category,
-      locations: p.locations.map(l => Location[l] || l),
-    }));
-    
-    res.status(200).json(frontendProviders);
+    const providers = await prisma.serviceProvider.findMany({ where: whereClause, include: { owner: true, detailedServices: true } });
+    res.status(200).json(providers.map(toFrontendProvider));
   } catch (error) {
     console.error('Error fetching providers:', error);
     res.status(500).json({ message: 'Internal server error.' });
   }
 });
 
-// Get a single provider by ID (PUBLIC)
-app.get('/api/providers/:id', async (req, res) => {
-    const { id } = req.params;
+apiRouter.get('/providers/:id', async (req, res) => {
     try {
-        const provider = await prisma.serviceProvider.findUnique({
-            where: { id },
-            include: {
-                owner: { select: { id: true, name: true, email: true } },
-                detailedServices: true,
-            },
-        });
-        if (!provider) {
-            return res.status(404).json({ message: 'Provider not found.' });
-        }
-        
-        const frontendProvider = {
-            ...provider,
-            category: ServiceCategory[provider.category] || provider.category,
-            locations: provider.locations.map(l => Location[l] || l),
-        };
-        
-        res.status(200).json(frontendProvider);
+        const provider = await prisma.serviceProvider.findUnique({ where: { id: req.params.id }, include: { owner: true, detailedServices: true } });
+        if (!provider) return res.status(404).json({ message: 'Provider not found.' });
+        res.status(200).json(toFrontendProvider(provider));
     } catch (error) {
-        console.error('Error fetching provider by ID:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-// Search providers (filtered by category and location) (PUBLIC)
-app.get('/api/providers/search', async (req, res) => {
+apiRouter.get('/providers/search', async (req, res) => {
     const { category, location } = req.query;
-
-    if (!category || !location) {
-        return res.status(400).json({ message: 'Category and location are required for search.' });
-    }
-
     try {
-        const searchResults = await prisma.serviceProvider.findMany({
-            where: {
-                category: toPrismaEnum(category),
-                locations: {
-                    has: toPrismaEnum(location), // Checks if the 'locations' array contains the specified location
-                },
-                isBlacklisted: false, // Do not show blacklisted providers in public search
-            },
-            include: {
-                owner: { select: { id: true, name: true, email: true } },
-                detailedServices: true,
-            },
+        const results = await prisma.serviceProvider.findMany({
+            where: { category: toPrismaEnum(category), locations: { has: toPrismaEnum(location) }, isBlacklisted: false },
+            include: { owner: true, detailedServices: true },
         });
-        
-        const frontendProviders = searchResults.map(p => ({
-            ...p,
-            category: ServiceCategory[p.category] || p.category,
-            locations: p.locations.map(l => Location[l] || l),
-        }));
-        
-        res.status(200).json(frontendProviders);
+        res.status(200).json(results.map(toFrontendProvider));
     } catch (error) {
-        console.error('Error searching providers:', error);
-        res.status(500).json({ message: 'Internal server error during provider search.' });
+        res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-
-app.post('/api/providers', authenticateToken, async (req, res) => {
-  const {
-    businessName, category, locations, description,
-    hourlyRate, logoUrl, coverImageUrl, expertise, detailedServices,
-    aiAutoAcceptEnabled, latitude, longitude, allowsInstantBooking, kraPin
-  } = req.body;
-  
-  const name = businessName; // Use businessName as the provider's name
-
-  if (!name || !category || !locations || !description || !hourlyRate) {
-    return res.status(400).json({ message: 'Missing required provider fields.' });
-  }
-
+apiRouter.post('/providers', authenticateToken, async (req, res) => {
+  const { businessName, category, locations, ...rest } = req.body;
   try {
-    const existingProvider = await prisma.serviceProvider.findUnique({
-        where: { ownerId: req.user.userId }
-    });
-    if (existingProvider) {
+    if (await prisma.serviceProvider.findUnique({ where: { ownerId: req.user.userId } })) {
         return res.status(409).json({ message: 'User already owns a provider profile.' });
     }
 
     const newProvider = await prisma.serviceProvider.create({
       data: {
+        ...rest,
+        name: businessName,
         ownerId: req.user.userId,
-        name,
         category: toPrismaEnum(category),
         locations: { set: locations.map(toPrismaEnum) },
         rating: 5.0,
-        reviewsCount: 0,
-        description,
-        hourlyRate: parseFloat(hourlyRate),
-        logoUrl,
-        coverImageUrl,
-        expertise: { set: expertise || [] },
-        availability: {},
-        aiAutoAcceptEnabled: aiAutoAcceptEnabled || false,
-        kycVerified: false,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
-        allowsInstantBooking: allowsInstantBooking || false,
-        isBlacklisted: false,
-        detailedServices: {
-          createMany: {
-            data: detailedServices || [],
-          }
-        }
+        detailedServices: { createMany: { data: rest.detailedServices || [] } }
       },
-      include: { detailedServices: true }
-    });
-
-    const { category: newCategory, locations: newLocations, name: providerName } = newProvider;
-    if (newCategory && newLocations && newLocations.length > 0) {
-        const matchingAlerts = await prisma.jobAlert.findMany({
-            where: {
-                serviceCategory: newCategory,
-                location: { in: newLocations },
-            },
-            select: { userId: true, location: true }
-        });
-        
-        if (matchingAlerts.length > 0) {
-            const userNotifications = new Map();
-            matchingAlerts.forEach(alert => {
-                if (!userNotifications.has(alert.userId)) {
-                    userNotifications.set(alert.userId, {
-                        userId: alert.userId,
-                        message: `A new ${ServiceCategory[newCategory] || newCategory} provider, '${providerName}', is now available in ${Location[alert.location] || alert.location}!`,
-                        bookingId: null,
-                        read: false,
-                        timestamp: new Date()
-                    });
-                }
-            });
-
-            await prisma.notification.createMany({
-                data: Array.from(userNotifications.values()),
-                skipDuplicates: true,
-            });
-            console.log(`Created ${userNotifications.size} notifications for new provider.`);
-        }
-    }
-
-    await prisma.user.update({
-        where: { id: req.user.userId },
-        data: {
-            role: 'PROVIDER',
-            businessName: name,
-            kraPin: kraPin,
-        }
+      include: { owner: true, detailedServices: true }
     });
     
-    const frontendProvider = {
-        ...newProvider,
-        category: ServiceCategory[newProvider.category] || newProvider.category,
-        locations: newProvider.locations.map(l => Location[l] || l),
-    };
+    await prisma.user.update({
+        where: { id: req.user.userId },
+        data: { role: 'PROVIDER', businessName, kraPin: rest.kraPin }
+    });
 
-    res.status(201).json({ message: 'Provider created successfully', provider: frontendProvider });
+    res.status(201).json({ message: 'Provider created', provider: toFrontendProvider(newProvider) });
   } catch (error) {
     console.error('Error creating provider:', error);
-    res.status(500).json({ message: 'Internal server error during provider creation.' });
+    res.status(500).json({ message: 'Internal server error.' });
   }
 });
 
-app.put('/api/providers/:id', authenticateToken, async (req, res) => {
+apiRouter.put('/providers/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
-    const {
-        businessName, category, locations, description,
-        hourlyRate, logoUrl, coverImageUrl, expertise, gallery, detailedServices,
-        availability, aiAutoAcceptEnabled, kycVerified, latitude, longitude, allowsInstantBooking
-    } = req.body;
-    
-    const name = businessName; // Align with form field
-
+    const { businessName, category, locations, detailedServices, ...rest } = req.body;
     try {
-        const existingProvider = await prisma.serviceProvider.findUnique({ where: { id } });
-        if (!existingProvider) {
-            return res.status(404).json({ message: 'Provider not found.' });
-        }
-
-        if (existingProvider.ownerId !== req.user.userId) {
-            return res.status(403).json({ message: 'Unauthorized to update this provider profile.' });
+        const provider = await prisma.serviceProvider.findUnique({ where: { id } });
+        if (!provider || provider.ownerId !== req.user.userId) {
+            return res.status(403).json({ message: 'Unauthorized.' });
         }
 
         const updatedProvider = await prisma.serviceProvider.update({
             where: { id },
             data: {
-                name,
+                ...rest,
+                name: businessName,
                 category: category ? toPrismaEnum(category) : undefined,
                 locations: locations ? { set: locations.map(toPrismaEnum) } : undefined,
-                description,
-                hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
-                logoUrl,
-                coverImageUrl,
-                expertise: expertise ? { set: expertise } : undefined,
-                gallery: gallery ? { set: gallery } : undefined,
-                availability: availability,
-                aiAutoAcceptEnabled,
-                kycVerified,
-                latitude: latitude ? parseFloat(latitude) : undefined,
-                longitude: longitude ? parseFloat(longitude) : undefined,
-                allowsInstantBooking,
             },
-            include: { detailedServices: true }
+            include: { owner: true, detailedServices: true }
         });
 
         if (detailedServices) {
             await prisma.detailedService.deleteMany({ where: { providerId: id } });
-            await prisma.detailedService.createMany({
-                data: detailedServices.map(ds => ({ description: ds.description, name: ds.name, price: ds.price, providerId: id })),
-            });
-            const finalProviderFromDb = await prisma.serviceProvider.findUnique({
-                where: { id },
-                include: { detailedServices: true }
-            });
-
-            const finalProvider = {
-              ...finalProviderFromDb,
-              category: ServiceCategory[finalProviderFromDb.category] || finalProviderFromDb.category,
-              locations: finalProviderFromDb.locations.map(l => Location[l] || l),
-            };
-
-            return res.status(200).json({ message: 'Provider updated successfully', provider: finalProvider });
+            await prisma.detailedService.createMany({ data: detailedServices.map(ds => ({ ...ds, providerId: id })) });
         }
-        
-        const finalProvider = {
-          ...updatedProvider,
-          category: ServiceCategory[updatedProvider.category] || updatedProvider.category,
-          locations: updatedProvider.locations.map(l => Location[l] || l),
-        };
-        
-        res.status(200).json({ message: 'Provider updated successfully', provider: finalProvider });
+
+        const finalProvider = await prisma.serviceProvider.findUnique({ where: { id }, include: { owner: true, detailedServices: true } });
+        res.status(200).json({ message: 'Provider updated', provider: toFrontendProvider(finalProvider) });
     } catch (error) {
         console.error('Error updating provider:', error);
-        res.status(500).json({ message: 'Internal server error during provider update.' });
-    }
-});
-
-// --- Job Alerts Endpoints ---
-app.get('/api/alerts/my', authenticateToken, async (req, res) => {
-    try {
-        const alerts = await prisma.jobAlert.findMany({
-            where: { userId: req.user.userId },
-            orderBy: { createdAt: 'desc' },
-        });
-        
-        const frontendAlerts = alerts.map(a => ({
-          ...a,
-          serviceCategory: ServiceCategory[a.serviceCategory] || a.serviceCategory,
-          location: Location[a.location] || a.location,
-        }));
-        
-        res.status(200).json(frontendAlerts);
-    } catch (error) {
-        console.error('Error fetching job alerts:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-app.post('/api/alerts', authenticateToken, async (req, res) => {
-    const { serviceCategory, location } = req.body;
-    if (!serviceCategory || !location) {
-        return res.status(400).json({ message: 'Service category and location are required.' });
+apiRouter.get('/alerts/my', authenticateToken, async (req, res) => {
+    try {
+        const alerts = await prisma.jobAlert.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
+        res.status(200).json(alerts.map(a => ({...a, serviceCategory: ServiceCategory[a.serviceCategory], location: Location[a.location]})));
+    } catch (error) {
+        res.status(500).json({ message: 'Internal server error.' });
     }
+});
 
+apiRouter.post('/alerts', authenticateToken, async (req, res) => {
+    const { serviceCategory, location } = req.body;
     try {
         const newAlert = await prisma.jobAlert.create({
-            data: {
-                userId: req.user.userId,
-                serviceCategory: toPrismaEnum(serviceCategory),
-                location: toPrismaEnum(location),
-            },
+            data: { userId: req.user.userId, serviceCategory: toPrismaEnum(serviceCategory), location: toPrismaEnum(location) },
         });
-        
-        const frontendAlert = {
-            ...newAlert,
-            serviceCategory: ServiceCategory[newAlert.serviceCategory] || newAlert.serviceCategory,
-            location: Location[newAlert.location] || newAlert.location,
-        };
-        
-        res.status(201).json({ message: 'Job alert created successfully', alert: frontendAlert });
+        res.status(201).json({ message: 'Alert created', alert: {...newAlert, serviceCategory: ServiceCategory[newAlert.serviceCategory], location: Location[newAlert.location]} });
     } catch (error) {
-        if (error.code === 'P2002') {
-            return res.status(409).json({ message: 'An alert for this category and location already exists.' });
-        }
-        console.error('Error creating job alert:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-app.delete('/api/alerts/:id', authenticateToken, async (req, res) => {
-    const { id } = req.params;
+apiRouter.delete('/alerts/:id', authenticateToken, async (req, res) => {
     try {
-        const alert = await prisma.jobAlert.findUnique({ where: { id } });
-        if (!alert) {
-            return res.status(404).json({ message: 'Job alert not found.' });
-        }
-        if (alert.userId !== req.user.userId) {
-            return res.status(403).json({ message: 'Unauthorized to delete this alert.' });
-        }
-        await prisma.jobAlert.delete({ where: { id } });
-        res.status(200).json({ message: 'Job alert deleted successfully.' });
+        await prisma.jobAlert.deleteMany({ where: { id: req.params.id, userId: req.user.userId } });
+        res.status(200).json({ message: 'Alert deleted.' });
     } catch (error) {
-        console.error('Error deleting job alert:', error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
+// AI Service proxy endpoints
+apiRouter.post('/ai/:endpoint', authenticateToken, async (req, res) => {
+    const { endpoint } = req.params;
+    const aiFunctions = {
+        'parse-service-request': parseServiceRequest,
+        'generate-provider-profile': generateProviderProfile,
+        'generate-logo-image': async (prompt) => ({ logoUrl: await generateLogoImage(prompt) }),
+        'generate-detailed-services': generateDetailedServices,
+        'generate-search-suggestions': generateSearchSuggestions,
+        'decide-booking-action': decideBookingAction,
+        'verify-provider-image': verifyProviderImage,
+        'generate-quotation-items': generateQuotationItems,
+    };
 
-// --- AI Service Endpoints (Protected by authentication) ---
-
-app.post('/api/ai/parse-service-request', authenticateToken, async (req, res) => {
-    const { query, coordinates } = req.body;
-    try {
-        const result = await parseServiceRequest(query, coordinates);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI parse-service-request:', error);
-        res.status(500).json({ message: 'AI service request failed.' });
-    }
-});
-
-app.post('/api/ai/generate-provider-profile', authenticateToken, async (req, res) => {
-    const { businessName, category } = req.body;
-    try {
-        const result = await generateProviderProfile(businessName, category);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI generate-provider-profile:', error);
-        res.status(500).json({ message: 'AI profile generation failed.' });
-    }
-});
-
-app.post('/api/ai/generate-logo-image', authenticateToken, async (req, res) => {
-    const { prompt } = req.body;
-    try {
-        const result = await generateLogoImage(prompt);
-        res.json({ logoUrl: result });
-    } catch (error) {
-        console.error('Error in AI generate-logo-image:', error);
-        res.status(500).json({ message: 'AI logo generation failed.' });
-    }
-});
-
-app.post('/api/ai/generate-detailed-services', authenticateToken, async (req, res) => {
-    const { category, description } = req.body;
-    try {
-        const result = await generateDetailedServices(category, description);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI generate-detailed-services:', error);
-        res.status(500).json({ message: 'AI detailed services generation failed.' });
-    }
-});
-
-app.post('/api/ai/generate-search-suggestions', authenticateToken, async (req, res) => {
-    const { category, providers } = req.body;
-    if (!category || !providers) {
-        return res.status(400).json({ message: 'Category and providers list are required.' });
-    }
-    try {
-        const result = await generateSearchSuggestions(category, providers);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI generate-search-suggestions:', error);
-        res.status(500).json({ message: 'AI search suggestions failed.' });
-    }
-});
-
-app.post('/api/ai/decide-booking-action', authenticateToken, async (req, res) => {
-    const { booking } = req.body; // Expects a Booking object
-    try {
-        const result = await decideBookingAction(booking);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI decide-booking-action:', error);
-        res.status(500).json({ message: 'AI booking decision failed.' });
-    }
-});
-
-app.post('/api/ai/verify-provider-image', authenticateToken, async (req, res) => {
-    const { imageData, imageType } = req.body; // imageData should be a File object structure { mimeType, data }
-    try {
-        const result = await verifyProviderImage(imageData, imageType);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI verify-provider-image:', error);
-        res.status(500).json({ message: 'AI image verification failed.' });
-    }
-});
-
-app.get('/api/ai/get-readable-location', authenticateToken, async (req, res) => {
-    const { lat, lon } = req.query;
-    if (!lat || !lon) {
-        return res.status(400).json({ message: 'Latitude and longitude are required.' });
-    }
-    try {
-        const locationName = await getReadableLocation(parseFloat(lat), parseFloat(lon));
-        res.json({ locationName });
-    } catch (error) {
-        console.error('Error in AI get-readable-location:', error);
-        res.status(500).json({ message: 'AI readable location retrieval failed.' });
-    }
-});
-
-app.get('/api/ai/get-city-from-coordinates', authenticateToken, async (req, res) => {
-    const { lat, lon } = req.query;
-    if (!lat || !lon) {
-        return res.status(400).json({ message: 'Latitude and longitude are required.' });
-    }
-    try {
-        const city = await getCityFromCoordinates(parseFloat(lat), parseFloat(lon));
-        res.json({ city });
-    } catch (error) {
-        console.error('Error in AI get-city-from-coordinates:', error);
-        res.status(500).json({ message: 'AI city from coordinates retrieval failed.' });
-    }
-});
-
-app.post('/api/ai/generate-quotation-items', authenticateToken, async (req, res) => {
-    const { provider, requestDetails } = req.body;
-    try {
-        const result = await generateQuotationItems(provider, requestDetails);
-        res.json(result);
-    } catch (error) {
-        console.error('Error in AI generate-quotation-items:', error);
-        res.status(500).json({ message: 'AI quotation generation failed.' });
-    }
-});
-
-
-// Chatbot Streaming Endpoint
-app.post('/api/ai/chatbot/init', authenticateToken, async (req, res) => {
-    const { userId, initialMessage } = req.body;
-    try {
-        const sessionId = initChatSession(userId, initialMessage);
-        res.status(200).json({ sessionId });
-    } catch (error) {
-        console.error('Error initializing chatbot session:', error);
-        res.status(500).json({ message: 'Failed to initialize chatbot session.' });
-    }
-});
-
-app.post('/api/ai/chatbot/message', authenticateToken, async (req, res) => {
-    const { sessionId, message } = req.body;
-    if (!sessionId || !message) {
-        return res.status(400).json({ message: 'Session ID and message are required.' });
-    }
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    try {
-        const stream = await sendMessageStream(sessionId, message);
-        for await (const chunk of stream) {
-            res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+    if (aiFunctions[endpoint]) {
+        try {
+            const result = await aiFunctions[endpoint](...Object.values(req.body));
+            res.json(result);
+        } catch (error) {
+            console.error(`Error in AI endpoint /api/ai/${endpoint}:`, error);
+            res.status(500).json({ message: `AI service request failed: ${error.message}` });
         }
-        res.end();
-    } catch (error) {
-        console.error('Error during chatbot message stream:', error);
-        res.write(`data: ${JSON.stringify({ error: 'Failed to get response from AI.' })}\n\n`);
-        res.end();
+    } else {
+        res.status(404).json({ message: 'AI endpoint not found.' });
     }
 });
 
-app.post('/api/ai/chatbot/close', authenticateToken, async (req, res) => {
-    const { sessionId } = req.body;
+apiRouter.get('/ai/get-readable-location', authenticateToken, (req, res) => getReadableLocation(req.query.lat, req.query.lon).then(name => res.json({ locationName: name })).catch(err => res.status(500).json({message: err.message})));
+apiRouter.get('/ai/get-city-from-coordinates', authenticateToken, (req, res) => getCityFromCoordinates(req.query.lat, req.query.lon).then(city => res.json({ city })).catch(err => res.status(500).json({message: err.message})));
+
+apiRouter.post('/ai/chatbot/init', authenticateToken, (req, res) => res.json({ sessionId: initChatSession(req.body.userId, req.body.initialMessage) }));
+apiRouter.post('/ai/chatbot/close', authenticateToken, (req, res) => { closeChatSession(req.body.sessionId); res.json({ message: 'Session closed.' }); });
+apiRouter.post('/ai/chatbot/message', authenticateToken, async (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream').setHeader('Cache-Control', 'no-cache').setHeader('Connection', 'keep-alive').flushHeaders();
     try {
-        closeChatSession(sessionId);
-        res.status(200).json({ message: 'Chat session closed.' });
+        const stream = await sendMessageStream(req.body.sessionId, req.body.message);
+        for await (const chunk of stream) { res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`); }
+        res.end();
     } catch (error) {
-        console.error('Error closing chatbot session:', error);
-        res.status(500).json({ message: 'Failed to close chatbot session.' });
+        res.write(`data: ${JSON.stringify({ error: 'AI Error' })}\n\n`);
+        res.end();
     }
 });
 
-
-// Bookings Endpoints
-app.post('/api/bookings', authenticateToken, async (req, res) => {
-    const { providerId, serviceDate, requestDetails, bookingType, otp, totalAmount, quotationItems, quotationStatus, dueDate, paymentDate, status } = req.body;
-
-    if (!providerId || !serviceDate || !bookingType) {
-        return res.status(400).json({ message: 'Missing required booking fields.' });
-    }
-
+// Bookings
+apiRouter.post('/bookings', authenticateToken, async (req, res) => {
     try {
         const newBooking = await prisma.booking.create({
-            data: {
-                providerId: providerId,
-                customerId: req.user.userId,
-                bookingDate: new Date(),
-                serviceDate: new Date(serviceDate),
-                requestDetails,
-                bookingType: toPrismaEnum(bookingType),
-                otp,
-                totalAmount,
-                quotationStatus: quotationStatus ? toPrismaEnum(quotationStatus) : undefined,
-                dueDate: dueDate ? new Date(dueDate) : null,
-                paymentDate: paymentDate ? new Date(paymentDate) : null,
-                status: toPrismaEnum(status || (bookingType === 'instant' ? 'Pending Provider Confirmation' : 'Pending Provider Confirmation')),
-                quotationItems: quotationItems ? {
-                    createMany: {
-                        data: quotationItems.map(item => ({
-                            description: item.description,
-                            quantity: item.quantity,
-                            unitPrice: item.unitPrice,
-                        }))
-                    }
-                } : undefined,
-            },
-            include: {
-                provider: {
-                    include: { owner: { select: { id: true, name: true, email: true } } }
-                },
-                customer: {
-                    select: { id: true, name: true, email: true }
-                },
-                quotationItems: true,
-            }
+            data: { ...req.body, customerId: req.user.userId, bookingType: toPrismaEnum(req.body.bookingType), status: toPrismaEnum(req.body.status) },
+            include: { provider: { include: { owner: true } }, customer: true, quotationItems: true }
         });
-
-        // Send Push Notification to Provider
-        const provider = await prisma.serviceProvider.findUnique({ where: { id: newBooking.providerId } });
-        if (provider) {
-            const customer = await prisma.user.findUnique({ where: { id: newBooking.customerId } });
-            const payload = {
-                title: 'New Booking Request!',
-                body: `${customer.name} requested a ${ServiceCategory[provider.category] || provider.category} service.`
-            };
-            await sendPushNotification(provider.ownerId, payload);
-        }
-
-        res.status(201).json({ message: 'Booking created successfully', booking: newBooking });
+        await sendPushNotification(newBooking.provider.ownerId, { title: 'New Booking Request!', body: `From ${newBooking.customer.name}` });
+        res.status(201).json({ message: 'Booking created', booking: toFrontendBooking(newBooking) });
     } catch (error) {
-        console.error('Error creating booking:', error);
-        res.status(500).json({ message: 'Internal server error during booking creation.' });
+        console.error("Booking creation error:", error);
+        res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-app.get('/api/bookings/my', authenticateToken, async (req, res) => {
+apiRouter.get('/bookings/my', authenticateToken, async (req, res) => {
     try {
         const bookings = await prisma.booking.findMany({
-            where: {
-                OR: [
-                    { customerId: req.user.userId },
-                    { provider: { ownerId: req.user.userId } }
-                ]
-            },
-            include: {
-                provider: {
-                    include: { owner: { select: { id: true, name: true, email: true } } }
-                },
-                customer: {
-                    select: { id: true, name: true, email: true }
-                },
-                quotationItems: true,
-            },
-            orderBy: {
-                serviceDate: 'desc',
-            },
+            where: { OR: [{ customerId: req.user.userId }, { provider: { ownerId: req.user.userId } }] },
+            include: { provider: { include: { owner: true } }, customer: true, quotationItems: true, review: true },
+            orderBy: { serviceDate: 'desc' },
         });
-        res.status(200).json(bookings);
+        res.status(200).json(bookings.map(toFrontendBooking));
     } catch (error) {
-        console.error('Error fetching user bookings:', error);
+        console.error("Fetching bookings error:", error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
+apiRouter.put('/bookings/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
-    const { status, review, chatHistory, quotationItems, quotationStatus, totalAmount, paymentDate, dueDate } = req.body;
-
+    const { status, quotationItems, ...rest } = req.body;
     try {
-        const existingBooking = await prisma.booking.findUnique({
-            where: { id },
-            include: { 
-                provider: { select: { ownerId: true, id: true, name: true } },
-                customer: { select: { id: true, name: true } }
-            }
-        });
-
-        if (!existingBooking) {
-            return res.status(404).json({ message: 'Booking not found.' });
+        const booking = await prisma.booking.findUnique({ where: { id }, include: { provider: true, customer: true } });
+        if (!booking || (booking.customerId !== req.user.userId && booking.provider.ownerId !== req.user.userId)) {
+            return res.status(403).json({ message: 'Unauthorized.' });
         }
-        
-        // Authorization: ensure user is involved in the booking
-        const isProvider = existingBooking.provider.ownerId === req.user.userId;
-        const isCustomer = existingBooking.customerId === req.user.userId;
-
-        if (!isProvider && !isCustomer) {
-            return res.status(403).json({ message: 'Unauthorized to update this booking.' });
-        }
-        
-        // --- Blacklisting Logic for Provider Rejection ---
-        if (isProvider && status === 'Cancelled' && existingBooking.status === 'PENDING_PROVIDER_CONFIRMATION') {
-            const provider = await prisma.serviceProvider.findUnique({
-                where: { id: existingBooking.providerId },
-            });
-
-            if (provider) {
-                const now = new Date();
-                const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-                const history = Array.isArray(provider.rejectionHistory) ? provider.rejectionHistory : [];
-                
-                const recentRejections = [...history, now.toISOString()].filter(
-                    timestamp => new Date(timestamp) > thirtyDaysAgo
-                );
-
-                let providerUpdateData = { rejectionHistory: recentRejections };
-
-                if (recentRejections.length >= 3) {
-                    const blacklistEndDate = new Date();
-                    blacklistEndDate.setMonth(blacklistEndDate.getMonth() + 3);
-                    
-                    providerUpdateData.isBlacklisted = true;
-                    providerUpdateData.blacklistEndDate = blacklistEndDate;
-                    providerUpdateData.rejectionHistory = []; // Reset history
-
-                    await prisma.notification.create({
-                        data: {
-                            userId: provider.ownerId,
-                            message: `Your account has been suspended until ${blacklistEndDate.toLocaleDateString()} due to frequent job rejections.`,
-                        }
-                    });
-                }
-                
-                await prisma.serviceProvider.update({
-                    where: { id: provider.id },
-                    data: providerUpdateData,
-                });
-            }
-        }
-
-        const updatedBooking = await prisma.booking.update({
-            where: { id },
-            data: {
-                status: status ? toPrismaEnum(status) : undefined,
-                review: review ? {
-                    upsert: {
-                        create: {
-                            rating: review.rating,
-                            reviewText: review.reviewText,
-                            authorId: req.user.userId,
-                            providerId: existingBooking.providerId,
-                            date: new Date(review.date),
-                        },
-                        update: {
-                            rating: review.rating,
-                            reviewText: review.reviewText,
-                            date: new Date(review.date),
-                        },
-                    }
-                } : undefined,
-                chatHistory,
-                quotationStatus: quotationStatus ? toPrismaEnum(quotationStatus) : undefined,
-                totalAmount,
-                paymentDate: paymentDate ? new Date(paymentDate) : undefined,
-                dueDate: dueDate ? new Date(dueDate) : undefined,
-            },
-            include: {
-                provider: {
-                    include: { owner: { select: { id: true, name: true, email: true } } }
-                },
-                customer: {
-                    select: { id: true, name: true, email: true }
-                },
-                review: true,
-                quotationItems: true,
-            }
-        });
-
-        // Send push notification if status changed
-        if (status && status !== existingBooking.status) {
-            let notificationMessage = '';
-            let recipientId;
-
-            if (isProvider) { // Provider is making the change
-                recipientId = existingBooking.customerId;
-                if (status === 'Confirmed') notificationMessage = `Your booking with ${existingBooking.provider.name} has been confirmed!`;
-                else if (status === 'Cancelled') notificationMessage = `${existingBooking.provider.name} has cancelled your booking.`;
-                else if (status === 'Completed') notificationMessage = `Your service with ${existingBooking.provider.name} is complete. Please pay and leave a review.`;
-            } else { // Customer is making the change
-                recipientId = existingBooking.provider.ownerId;
-                if (status === 'Cancelled') notificationMessage = `${existingBooking.customer.name} has cancelled their booking with you.`;
-            }
-            
-            if (notificationMessage && recipientId) {
-                const payload = { title: 'Booking Status Updated', body: notificationMessage };
-                await sendPushNotification(recipientId, payload);
-            }
-        }
-
-
-        if (quotationItems) {
-            await prisma.quotationItem.deleteMany({ where: { bookingId: id } });
-            await prisma.quotationItem.createMany({
-                data: quotationItems.map(item => ({ ...item, bookingId: id })),
-            });
-            const finalBooking = await prisma.booking.findUnique({
-                where: { id },
-                include: {
-                    provider: {
-                        include: { owner: { select: { id: true, name: true, email: true } } }
-                    },
-                    customer: {
-                        select: { id: true, name: true, email: true }
-                    },
-                    review: true,
-                    quotationItems: true,
-                }
-            });
-            return res.status(200).json({ message: 'Booking updated successfully', booking: finalBooking });
-        }
-
-
-        res.status(200).json({ message: 'Booking updated successfully', booking: updatedBooking });
+        const updatedBooking = await prisma.booking.update({ where: { id }, data: { ...rest, status: status ? toPrismaEnum(status) : undefined }, include: { provider: { include: { owner: true } }, customer: true, quotationItems: true, review: true } });
+        res.status(200).json({ message: 'Booking updated', booking: toFrontendBooking(updatedBooking) });
     } catch (error) {
-        console.error('Error updating booking:', error);
-        res.status(500).json({ message: 'Internal server error during booking update.' });
-    }
-});
-
-
-// Notifications Endpoints
-app.get('/api/notifications/vapid-public-key', (req, res) => {
-    if (!vapidPublicKey) {
-        return res.status(500).json({ message: 'VAPID public key not configured on server.' });
-    }
-    res.status(200).json({ publicKey: vapidPublicKey });
-});
-
-app.post('/api/notifications/subscribe', authenticateToken, async (req, res) => {
-    const subscription = req.body;
-    try {
-        await prisma.user.update({
-            where: { id: req.user.userId },
-            data: { pushSubscription: subscription },
-        });
-        res.status(201).json({ message: 'Subscription saved.' });
-    } catch (error) {
-        console.error('Error saving push subscription:', error);
+        console.error("Booking update error:", error);
         res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
-app.post('/api/notifications', authenticateToken, async (req, res) => {
-    const { userId, message, bookingId } = req.body;
-    try {
-        const newNotification = await prisma.notification.create({
-            data: {
-                userId,
-                message,
-                bookingId,
-                timestamp: new Date(),
-                read: false,
-            },
-        });
-        res.status(201).json({ message: 'Notification created', notification: newNotification });
-    } catch (error) {
-        console.error('Error creating notification:', error);
-        res.status(500).json({ message: 'Internal server error.' });
-    }
-});
 
-app.get('/api/notifications/my', authenticateToken, async (req, res) => {
-    try {
-        const notifications = await prisma.notification.findMany({
-            where: { userId: req.user.userId },
-            orderBy: { timestamp: 'desc' },
-        });
-        res.status(200).json(notifications);
-    } catch (error) {
-        console.error('Error fetching user notifications:', error);
-        res.status(500).json({ message: 'Internal server error.' });
-    }
-});
+// Notifications
+apiRouter.get('/notifications/vapid-public-key', (req, res) => res.json({ publicKey: vapidPublicKey }));
+apiRouter.post('/notifications/subscribe', authenticateToken, (req, res) => prisma.user.update({ where: { id: req.user.userId }, data: { pushSubscription: req.body } }).then(() => res.sendStatus(201)).catch(() => res.sendStatus(500)));
+apiRouter.post('/notifications', authenticateToken, (req, res) => prisma.notification.create({ data: req.body }).then(n => res.status(201).json({ notification: n })).catch(() => res.sendStatus(500)));
+apiRouter.get('/notifications/my', authenticateToken, (req, res) => prisma.notification.findMany({ where: { userId: req.user.userId }, orderBy: { timestamp: 'desc' } }).then(n => res.json(n)).catch(() => res.sendStatus(500)));
+apiRouter.put('/notifications/mark-read', authenticateToken, (req, res) => prisma.notification.updateMany({ where: { userId: req.user.userId, read: false }, data: { read: true } }).then(() => res.sendStatus(200)).catch(() => res.sendStatus(500)));
 
-app.put('/api/notifications/mark-read', authenticateToken, async (req, res) => {
-    try {
-        await prisma.notification.updateMany({
-            where: { userId: req.user.userId, read: false },
-            data: { read: true },
-        });
-        res.status(200).json({ message: 'All notifications marked as read.' });
-    } catch (error) {
-        console.error('Error marking notifications as read:', error);
-        res.status(500).json({ message: 'Internal server error.' });
-    }
-});
 
-// --- End of API Routes ---
+// --- Mount Router and Define Fallbacks ---
 
-// Catch-all for API routes that don't exist. This must be after all API routes.
-app.use('/api/*', (req, res) => {
-    res.status(404).json({ message: 'API endpoint not found.' });
+// Mount the API router at /api
+app.use('/api', apiRouter);
+
+// API 404 Handler - This MUST be after the API router
+app.use('/api', (req, res, next) => {
+    console.warn(`404 - API Route Not Found: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
 // Serve static assets from the root directory of the project.
 const frontendPath = path.resolve(__dirname, '..');
 app.use(express.static(frontendPath));
 
-// For any GET request that doesn't match an API route or a static file,
-// send the main index.html file. This allows the React client-side router to take over.
+// For all other GET requests that aren't for files, send the SPA's index.html
 app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'), function(err) {
-    if (err) {
-      // This error will be triggered if index.html itself is not found,
-      // which would indicate a server configuration problem.
-      console.error('Error sending index.html:', err);
-      res.status(500).send(err);
-    }
-  });
+    res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
+        if (err) {
+            console.error("Error sending SPA fallback file:", err);
+            res.status(500).send(err);
+        }
+    });
 });
 
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`V-Ken Serve Backend running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`V-Ken Serve Backend running on port ${PORT}`));

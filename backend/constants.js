@@ -1,5 +1,5 @@
-// This file is the JavaScript equivalent of the `constants.ts` file in the root directory.
-// It's used by the Node.js backend.
+// This file is the JavaScript equivalent of the `types.ts` file in the root directory.
+// It's used by the Node.js backend to ensure data consistency.
 
 const Location = {
   NAIROBI: "Nairobi",
@@ -33,12 +33,39 @@ const ServiceCategory = {
   MOUNTAIN_CLIMBING: "Mountain Climbing",
 };
 
-const LOCATIONS = Object.values(Location);
-const SERVICE_CATEGORIES = Object.values(ServiceCategory);
+const UserRole = {
+    CUSTOMER: "Customer",
+    PROVIDER: "Provider",
+};
+
+const BookingStatus = {
+    PENDING_PROVIDER_CONFIRMATION: 'Pending Provider Confirmation',
+    PENDING_CUSTOMER_CONFIRMATION: 'Pending Customer Confirmation',
+    CONFIRMED: 'Confirmed',
+    INPROGRESS: 'InProgress',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled'
+};
+
+const QuotationStatus = {
+    DRAFT: 'Draft',
+    SENT: 'Sent',
+    ACCEPTED: 'Accepted',
+    DECLINED: 'Declined'
+};
+
+const BookingType = {
+    QUOTE: 'quote',
+    INSTANT: 'instant'
+};
 
 module.exports = {
   Location,
   ServiceCategory,
-  LOCATIONS,
-  SERVICE_CATEGORIES,
+  UserRole,
+  BookingStatus,
+  QuotationStatus,
+  BookingType,
+  LOCATIONS: Object.values(Location),
+  SERVICE_CATEGORIES: Object.values(ServiceCategory),
 };
