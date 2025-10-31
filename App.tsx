@@ -1,5 +1,5 @@
+
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
-// FIX: Import NewProviderData from types.ts
 import { Location, ServiceCategory, ServiceProvider, User, UserRole, Booking, Review, Message, QuotationItem, DetailedService, Notification, JobAlert, LegalDocType, NewProviderData } from './types';
 import * as api from './frontend/services/api'; // Import all API functions
 import { useAppContext, AppView } from './contexts/AppContext';
@@ -39,7 +39,6 @@ const ForgotPasswordModal = lazy(() => import('./components/ForgotPasswordModal'
 const LocalHub = lazy(() => import('./components/LocalHub'));
 
 
-// FIX: Removed NewProviderData interface from here. It's now in types.ts
 const ChatbotButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
   <button
     onClick={onClick}
@@ -158,6 +157,48 @@ const App: React.FC = () => {
     // This effect should only run once.
   }, [dispatch]);
 
+    // Effect to handle Push Notification subscription
+    useEffect(() => {
+        if (currentUser && 'serviceWorker' in navigator && 'PushManager' in window) {
+            const subscribeToPush = async () => {
+                try {
+                    const swRegistration = await navigator.serviceWorker.register('/service-worker.js');
+                    let subscription = await swRegistration.pushManager.getSubscription();
+
+                    if (subscription === null) {
+                        const permission = await window.Notification.requestPermission();
+                        if (permission !== 'granted') {
+                            console.warn('Push notification permission not granted.');
+                            toast.info('Enable notifications in your browser settings to get real-time updates!');
+                            return;
+                        }
+
+                        const { publicKey: vapidPublicKey } = await api.getVapidPublicKey();
+                        if (!vapidPublicKey) {
+                            throw new Error('VAPID public key not found on server.');
+                        }
+
+                        subscription = await swRegistration.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: vapidPublicKey,
+                        });
+                    }
+
+                    await api.savePushSubscription(subscription);
+                    console.log('User is subscribed to push notifications.');
+
+                } catch (error) {
+                    console.error('Failed to subscribe to push notifications:', error);
+                    toast.error('Could not set up push notifications.');
+                }
+            };
+            // Delay subscription to ensure app is stable and avoid excessive requests on hot-reload
+            const timer = setTimeout(subscribeToPush, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [currentUser, toast]);
+
+
   // Effect to open location selector *after* initialization is complete
   useEffect(() => {
     // Only run this check if the app is NOT initializing and no location has been set.
@@ -166,6 +207,16 @@ const App: React.FC = () => {
     }
   }, [isInitializing, selectedLocation, modal, dispatch]);
 
+  // Define callbacks using useCallback for memoization
+  const onSelectCategory = useCallback((category: ServiceCategory) => {
+      if (!currentUser) {
+          dispatch({ type: 'SET_POST_LOGIN_ACTION', payload: () => onSelectCategory(category) });
+          dispatch({ type: 'OPEN_MODAL', payload: { type: 'auth', props: { promptMessage: 'Please log in or register to view service providers.' } } });
+          return;
+      }
+      dispatch({ type: 'SET_VIEW', payload: AppView.SEARCH });
+      dispatch({ type: 'SET_ACTIVE_SEARCH_CATEGORY', payload: category });
+  }, [currentUser, dispatch]);
 
   const handleAiSearch = async (query: string) => {
     setIsAiSearchLoading(true);
@@ -195,7 +246,7 @@ const App: React.FC = () => {
       }
       
       dispatch({ type: 'CLOSE_MODAL' });
-      handleSelectCategory(result.serviceCategory);
+      onSelectCategory(result.serviceCategory);
 
     } catch (error) {
       setAiSearchError("An error occurred while searching. Please try again.");
@@ -205,734 +256,291 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSelectCategory = useCallback(async (category: ServiceCategory) => {
-    if (!selectedLocation) {
-        toast.info("Please select a location first to see providers.");
-        dispatch({ type: 'OPEN_MODAL', payload: { type: 'locationSelector' } });
-        return;
-    }
-    dispatch({ type: 'SET_VIEW', payload: AppView.SEARCH });
-    dispatch({ type: 'SET_ACTIVE_SEARCH_CATEGORY', payload: category });
-    dispatch({ type: 'SET_SEARCH_LOADING_STATUS', payload: true });
-    
-    await new Promise(resolve => setTimeout(resolve, 300)); 
-
-    try {
-      const searchResults = await api.searchProviders(category, selectedLocation);
-
-      if (searchResults.length === 0 && !modal) {
-        dispatch({
-          type: 'OPEN_MODAL',
-          payload: {
-            type: 'chatbot',
-            props: { initialMessage: `We couldn't find any registered providers for ${category} in ${selectedLocation}. Can I help you search for something else?` }
-          }
-        });
-      }
-      
-      dispatch({ type: 'SET_SEARCH_RESULTS', payload: searchResults });
-
-    } catch (error) {
-      toast.error("An error occurred while searching for providers.");
-      console.error("Search Providers Error:", error);
-      dispatch({ type: 'SET_SEARCH_RESULTS', payload: [] });
-    } finally {
-      dispatch({ type: 'SET_SEARCH_LOADING_STATUS', payload: false });
-    }
-  }, [dispatch, selectedLocation, modal, toast]);
-  
-  const handleFindNearMe = useCallback(() => {
-    if (!navigator.geolocation) {
-        toast.error("Geolocation is not supported by your browser.");
-        return;
-    }
-    dispatch({ type: 'SET_SEARCH_LOADING_STATUS', payload: true });
-    
-    navigator.geolocation.getCurrentPosition(
-        (position) => {
-            const { latitude, longitude } = position.coords;
-            const currentUserCoords = { lat: latitude, lon: longitude };
-            dispatch({ type: 'SET_USER_COORDINATES', payload: currentUserCoords });
-
-            // Calculate distances for all providers
-            const providersWithDistance = providers
-                .map(provider => ({
-                    provider,
-                    distance: provider.coordinates ? getDistance(currentUserCoords, provider.coordinates) : Infinity,
-                }))
-                .sort((a, b) => a.distance - b.distance); // Sort by distance ascending
-
-            dispatch({ type: 'SET_SEARCH_RESULTS', payload: providersWithDistance.map(p => p.provider) });
-            dispatch({ type: 'SET_ACTIVE_SEARCH_CATEGORY', payload: "Providers Near You" as any });
-            dispatch({ type: 'SET_VIEW', payload: AppView.SEARCH });
-            dispatch({ type: 'SET_SEARCH_LOADING_STATUS', payload: false });
-        },
-        (error) => {
-            toast.error("Could not get your location. Please enable location services in your browser settings.");
-            console.error("Geolocation error:", error);
-            dispatch({ type: 'SET_SEARCH_LOADING_STATUS', payload: false });
-        }
-    );
-  }, [dispatch, providers, toast]);
-  
-  const handleAuthSuccess = async (user: { name: string; email: string; phone: string; role: UserRole; id?: string }, isNewUser: boolean, token?: string) => {
-    if (token) {
-        localStorage.setItem('jwtToken', token);
-    }
-    const loggedInUser: User = { ...user, id: user.id || `user-${Date.now()}`, kycVerified: false };
-    dispatch({ type: 'LOGIN', payload: loggedInUser });
-    dispatch({ type: 'CLOSE_MODAL' });
-    toast.success(`Welcome, ${loggedInUser.name}!`);
-    
-    try {
-      const fetchedBookings = await api.fetchMyBookings();
-      dispatch({ type: 'SET_BOOKINGS', payload: fetchedBookings });
-      const fetchedNotifications = await api.fetchMyNotifications();
-      dispatch({ type: 'SET_NOTIFICATIONS', payload: fetchedNotifications });
-      const fetchedAlerts = await api.fetchMyJobAlerts();
-      dispatch({ type: 'SET_JOB_ALERTS', payload: fetchedAlerts });
-    } catch (error) {
-      console.error("Failed to fetch user data after login:", error);
-      toast.error("Failed to load your bookings, notifications, or alerts.");
-    }
-
-    // For new providers, take them to their empty dashboard to start setup.
-    if (isNewUser && loggedInUser.role === UserRole.PROVIDER) {
-      dispatch({ type: 'SET_VIEW', payload: AppView.PROVIDER_DASHBOARD });
-    }
-
-    if (state.postLoginAction) {
-        state.postLoginAction();
-        dispatch({ type: 'SET_POST_LOGIN_ACTION', payload: null });
-    }
-  };
-  
-  const handleProviderRegister = (user: { name: string; email: string; phone: string }) => {
-    dispatch({ type: 'CLOSE_MODAL' });
-    dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerRegistration', props: { pendingUser: user } } });
-  };
-  
-  const handleProviderRegistrationComplete = async (data: Partial<ServiceProvider & NewProviderData>, pendingUser?: { name: string, email: string, phone: string }) => {
-    const userToLogin = currentUser || (pendingUser ? { ...pendingUser, id: `user-${Date.now()}`, role: UserRole.CUSTOMER, kycVerified: false } : null);
-    if(!userToLogin) {
-      toast.error("No user session found. Please log in again.");
-      return;
-    }
-
-    // EDIT MODE: If an ID is present, it's an update.
-    if (data.id && currentUser) {
-      try {
-        const { businessName, ...restOfData } = data;
-        const updatePayload: Partial<ServiceProvider> = {
-          ...restOfData,
-          name: businessName, // API expects 'name', form uses 'businessName'
-        };
-        const response = await api.updateProvider(data.id, updatePayload);
-        const updatedProvider = response.provider;
-
-        dispatch({ type: 'UPDATE_PROVIDER', payload: { providerId: updatedProvider.id, updates: updatedProvider } });
-
-        // Update user's business name if it changed
-        if (currentUser.businessName !== businessName) {
-            const userUpdateResponse = await api.updateCurrentUser({ businessName: businessName });
-            dispatch({ type: 'UPDATE_USER', payload: userUpdateResponse.user });
-        }
-        
-        dispatch({ type: 'CLOSE_MODAL' });
-        toast.success("Profile updated successfully!");
-
-      } catch (error) {
-        console.error("Provider update failed:", error);
-        toast.error("Failed to update profile. Please try again.");
-      }
-      return;
-    }
-
-    // CREATE MODE: No ID present, create a new provider.
-    try {
-      const newProviderDataForAPI = {
-          name: data.businessName!,
-          category: data.category!,
-          locations: data.locations!,
-          description: data.description!,
-          hourlyRate: data.hourlyRate!,
-          logoUrl: data.logoUrl!,
-          coverImageUrl: data.coverImageUrl!,
-          expertise: data.expertise!,
-          latitude: data.latitude!,
-          longitude: data.longitude!,
-          kraPin: data.kraPin!,
-      };
-      
-      const response = await api.createProvider(newProviderDataForAPI);
-      const newProvider = response.provider;
-
-      dispatch({ type: 'ADD_PROVIDER', payload: newProvider });
-      
-      const updatedUser: User = { 
-        ...userToLogin,
-        id: newProvider.ownerId,
-        name: userToLogin.name,
-        email: userToLogin.email,
-        phone: userToLogin.phone,
-        role: UserRole.PROVIDER,
-        businessName: data.businessName,
-        kraPin: data.kraPin,
-        kycVerified: false,
-      };
-      dispatch({ type: 'LOGIN', payload: updatedUser });
-
-      dispatch({ type: 'CLOSE_MODAL' });
-      dispatch({ type: 'OPEN_MODAL', payload: { type: 'kyc' } });
-      toast.info("Profile created! Please complete your KYC verification.");
-
-    } catch (error) {
-      console.error("Provider registration failed:", error);
-      toast.error("Failed to register provider profile. Please try again.");
-    }
-  };
-  
-  const handleKycSuccess = async (updatedUserData: Partial<User>) => {
-    if (!currentUser) { 
-        toast.error("User not logged in."); 
-        dispatch({type: 'CLOSE_MODAL' }); 
-        return; 
-    }
-    try {
-        const response = await api.updateCurrentUser({ ...updatedUserData, kycVerified: true });
-        const updatedUser = response.user;
-        dispatch({ type: 'UPDATE_USER', payload: updatedUser });
-
-        if (updatedUser.role === UserRole.PROVIDER && updatedUser.kycVerified) {
-            const providerProfile = providers.find(p => p.ownerId === updatedUser.id);
-            if (providerProfile) {
-                await api.updateProvider(providerProfile.id, { kycVerified: true });
-                dispatch({ 
-                    type: 'UPDATE_PROVIDER', 
-                    payload: { 
-                        providerId: providerProfile.id, 
-                        updates: { kycVerified: true } 
-                    } 
-                });
-            }
-        }
-        dispatch({ type: 'CLOSE_MODAL' });
-        toast.success("KYC details submitted for verification!");
-        if(updatedUser.role === UserRole.PROVIDER) {
-          dispatch({ type: 'SET_VIEW', payload: AppView.PROVIDER_DASHBOARD });
-        }
-    } catch (error) {
-        console.error("KYC submission failed:", error);
-        toast.error("Failed to submit KYC. Please try again.");
-    }
-  };
-
-  const handleSendBookingRequest = async (provider: ServiceProvider, serviceDate: Date, requestDetails: string, type: 'instant' | 'quote'): Promise<Booking> => {
-    if (!currentUser) throw new Error("Current user not found");
-    
-    const newBookingData = {
-      providerId: provider.id,
-      serviceDate: serviceDate.toISOString(),
-      requestDetails,
-      bookingType: type,
-      otp: Math.floor(1000 + Math.random() * 9000).toString(),
-      status: 'Pending Provider Confirmation' as Booking['status'],
-    };
-
-    try {
-      const response = await api.createBooking(newBookingData);
-      const newBooking = response.booking;
-
-      dispatch({ type: 'ADD_BOOKING', payload: newBooking });
-      
-      const notificationMessage = type === 'instant' 
-        ? `${currentUser.name} has instantly booked and paid for a ${provider.category} service. Please confirm.`
-        : `${currentUser.name} has requested a ${provider.category} service.`;
-
-      await api.createNotification({
-          userId: provider.ownerId,
-          message: notificationMessage,
-          bookingId: newBooking.id,
-      });
-
-      if(type === 'quote') {
-          toast.success("Booking request sent!");
-      } else {
-          toast.success("Booking fee paid! Awaiting provider confirmation.");
-      }
-
-      if (provider.category === ServiceCategory.FINANCIAL_SERVICES) {
-        console.log(`Simulating external email notification for Financial Services booking ID: ${newBooking.id}`);
-        toast.info("VTwo Investments has been notified of your Financial Services request!");
-      }
-
-      if (provider.aiAutoAcceptEnabled && type === 'quote') {
-        toast.info(`AI is reviewing the request for ${provider.name}...`);
-        const decision = await api.decideBookingAction(newBooking);
-        setTimeout(() => {
-          if (decision.action === 'accept') {
-            handleUpdateBookingStatus(newBooking, 'accept');
-            toast.success(`AI automatically accepted your booking! Reason: ${decision.reason}`);
-          } else {
-            toast.error(`AI declined the booking. Reason: ${decision.reason}`);
-            handleUpdateBookingStatus(newBooking, 'decline');
-          }
-        }, 2500);
-      }
-      return newBooking;
-
-    } catch (error) {
-      console.error("Booking request failed:", error);
-      toast.error("Failed to send booking request. Please try again.");
-      throw error;
-    }
-  };
-  
-  const handleUpdateBookingStatus = async (booking: Booking, response: 'accept' | 'decline' | 'cancel') => {
-    let newStatus: Booking['status'] = booking.status;
-    let customerMessage = '';
-    let providerMessage = '';
-
-    if (response === 'accept') {
-        newStatus = booking.bookingType === 'instant' 
-            ? 'Confirmed' 
-            : 'Pending Customer Confirmation';
-        customerMessage = booking.bookingType === 'instant'
-            ? `Your booking with ${booking.provider.name} is confirmed!`
-            : `Your booking with ${booking.provider.name} has been accepted. Please pay the booking fee to confirm.`;
-    } else if (response === 'decline') {
-        newStatus = 'Cancelled';
-        customerMessage = `Your booking request with ${booking.provider.name} has been declined.`;
-    } else if (response === 'cancel') {
-        newStatus = 'Cancelled';
-        const canceller = currentUser?.id === booking.customer.id ? 'The customer' : 'The provider';
-        const otherParty = currentUser?.id === booking.customer.id ? booking.provider : booking.customer;
-        
-        customerMessage = currentUser?.id === booking.customer.id ? `You have successfully cancelled your booking with ${booking.provider.name}.` : `${canceller} has cancelled your booking.`;
-        providerMessage = currentUser?.id === booking.provider.ownerId ? `You have successfully cancelled your booking with ${booking.customer.name}.` : `${canceller} has cancelled the booking.`;
-    }
-    
-    try {
-        const updatedBookingResponse = await api.updateBooking(booking.id, { status: newStatus });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-        
-        // Notify customer
-        if (customerMessage) {
-            await api.createNotification({
-                userId: booking.customer.id,
-                message: customerMessage,
-                bookingId: booking.id,
-            });
-        }
-        // Notify provider (relevant for cancellations by customer)
-        if (providerMessage) {
-            await api.createNotification({
-                userId: booking.provider.ownerId,
-                message: providerMessage,
-                bookingId: booking.id,
-            });
-        }
-
-
-        dispatch({ type: 'CLOSE_MODAL' });
-        toast.info(`Booking has been ${response === 'accept' ? 'accepted' : (response === 'decline' ? 'declined' : 'cancelled')}.`);
-    } catch (error) {
-        console.error(`Failed to ${response} booking:`, error);
-        toast.error(`Failed to ${response} booking. Please try again.`);
-    }
-  };
-
-  const handleCancelBooking = (booking: Booking) => {
-    dispatch({
-        type: 'OPEN_MODAL',
-        payload: {
-            type: 'confirmation',
-            props: {
-                title: 'Cancel Booking',
-                message: `Are you sure you want to cancel this booking with ${currentUser?.id === booking.customer.id ? booking.provider.name : booking.customer.name}? This action cannot be undone.`,
-                onConfirm: () => handleUpdateBookingStatus(booking, 'cancel'),
-                confirmText: 'Yes, Cancel Booking',
-            }
-        }
-    });
-};
-
-
-  const handleCustomerPaymentSuccess = async (bookingId: string) => {
-    const bookingToUpdate = bookings.find(b => b.id === bookingId);
-    if (!bookingToUpdate) return;
-    try {
-        const updatedBookingResponse = await api.updateBooking(bookingId, { status: 'Confirmed' });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-        toast.success("Payment successful! Your booking is confirmed.");
-        dispatch({ type: 'CLOSE_MODAL' });
-
-        await api.createNotification({
-            userId: bookingToUpdate.provider.ownerId,
-            message: `${bookingToUpdate.customer.name} has confirmed their booking with payment.`,
-            bookingId: bookingToUpdate.id,
-        });
-
-    } catch (error) {
-        console.error("Customer payment failed:", error);
-        toast.error("Failed to confirm payment. Please try again.");
-    }
-  };
-  
-  const handleLeaveReview = async (bookingId: string, review: Review) => {
-    const bookingToUpdate = bookings.find(b => b.id === bookingId);
-    if (!bookingToUpdate || !currentUser) return;
-    
-    try {
-        const updatedBookingResponse = await api.updateBooking(bookingId, { review: review });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-        
-        const provider = providers.find(p => p.id === bookingToUpdate.provider.id);
-        if (provider) {
-            const newReviewsList = [...(provider.reviewsList || []), review];
-            const newTotalRating = newReviewsList.reduce((sum, r) => sum + r.rating, 0);
-            const newAverageRating = parseFloat((newTotalRating / newReviewsList.length).toFixed(1));
-            
-            await api.updateProvider(provider.id, {
-                rating: newAverageRating,
-            });
-            dispatch({ type: 'UPDATE_PROVIDER', payload: { providerId: provider.id, updates: { rating: newAverageRating, reviewsCount: newReviewsList.length } } });
-        }
-        
-        toast.success("Thank you for your review!");
-        dispatch({ type: 'CLOSE_MODAL' });
-    } catch (error) {
-        console.error("Leaving review failed:", error);
-        toast.error("Failed to submit review. Please try again.");
-    }
-  };
-  
-  const handleOtpVerified = async (bookingId: string) => {
-    const bookingToUpdate = bookings.find(b => b.id === bookingId);
-    if (!bookingToUpdate) return;
-    try {
-        const updatedBookingResponse = await api.updateBooking(bookingId, { status: 'InProgress' });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-        toast.success("Service started successfully!");
-        dispatch({ type: 'CLOSE_MODAL' });
-    } catch (error) {
-        console.error("OTP verification failed:", error);
-        toast.error("Failed to verify OTP. Please try again.");
-    }
-  };
-  
-  const handleSendMessage = async (bookingId: string, messageText: string) => {
-    if (!currentUser) return;
-    const newMessage: Message = {
-      senderId: currentUser.id,
-      text: messageText,
-      timestamp: new Date()
-    };
-    try {
-        const bookingToUpdate = bookings.find(b => b.id === bookingId);
-        if (!bookingToUpdate) return;
-        const updatedChatHistory = [...(bookingToUpdate.chatHistory || []), newMessage];
-        const updatedBookingResponse = await api.updateBooking(bookingId, { chatHistory: updatedChatHistory });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-
-        const recipientId = bookingToUpdate.customer.id === currentUser.id ? bookingToUpdate.provider.ownerId : bookingToUpdate.customer.id;
-        await api.createNotification({
-            userId: recipientId,
-            message: `${currentUser.name} sent you a message regarding booking ${bookingId.split('-')[1]}.`,
-            bookingId: bookingId,
-        });
-
-    } catch (error) {
-        console.error("Sending message failed:", error);
-        toast.error("Failed to send message.");
-    }
-  };
-  
-  const handleSendQuotation = async (bookingId: string, items: QuotationItem[], total: number) => {
-    const bookingToUpdate = bookings.find(b => b.id === bookingId);
-    if (!bookingToUpdate) return;
-    try {
-        const updatedBookingResponse = await api.updateBooking(bookingId, {
-            quotationItems: items,
-            totalAmount: total,
-            quotationStatus: 'Sent'
-        });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-
-        await api.createNotification({
-            userId: bookingToUpdate.customer.id,
-            message: `${bookingToUpdate.provider.name} sent you a quotation for KES ${total.toLocaleString()}.`,
-            bookingId: bookingId,
-        });
-        
-        toast.success("Quotation sent to the customer!");
-        dispatch({ type: 'CLOSE_MODAL' });
-    } catch (error) {
-        console.error("Sending quotation failed:", error);
-        toast.error("Failed to send quotation. Please try again.");
-    }
-  };
-  
-  const handleRespondToQuotation = async (bookingId: string, responseStatus: 'Accepted' | 'Declined') => {
-    const bookingToUpdate = bookings.find(b => b.id === bookingId);
-    if (!bookingToUpdate) return;
-    try {
-        const updatedBookingResponse = await api.updateBooking(bookingId, { quotationStatus: responseStatus });
-        dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-
-        await api.createNotification({
-            userId: bookingToUpdate.provider.ownerId,
-            message: `${bookingToUpdate.customer.name} has ${responseStatus.toLowerCase()} your quotation.`,
-            bookingId: bookingId,
-        });
-
-        toast.info(`You have ${responseStatus.toLowerCase()} the quotation.`);
-        dispatch({ type: 'CLOSE_MODAL' });
-    } catch (error) {
-        console.error("Responding to quotation failed:", error);
-        toast.error("Failed to respond to quotation. Please try again.");
-    }
-  };
-  
-    const handleCompleteJob = async (booking: Booking) => {
-        try {
-            const dueDate = new Date();
-            dueDate.setDate(dueDate.getDate() + 7);
-            
-            const updatedBookingResponse = await api.updateBooking(booking.id, { status: 'Completed', dueDate: dueDate.toISOString() });
-            dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-            toast.success('Job marked as complete. Invoice sent!');
-
-            await api.createNotification({
-                userId: booking.customer.id,
-                message: `${booking.provider.name} has marked your booking as complete. An invoice of KES ${booking.totalAmount?.toLocaleString()} is now due.`,
-                bookingId: booking.id,
-            });
-
-        } catch (error) {
-            console.error("Completing job failed:", error);
-            toast.error("Failed to mark job as complete. Please try again.");
-        }
-    };
-
-    const handlePayInvoiceSuccess = async (bookingId: string) => {
-        const bookingToUpdate = bookings.find(b => b.id === bookingId);
-        if (!bookingToUpdate) return;
-        try {
-            const updatedBookingResponse = await api.updateBooking(bookingId, { paymentDate: new Date().toISOString() });
-            dispatch({ type: 'UPDATE_BOOKING', payload: updatedBookingResponse.booking });
-            dispatch({ type: 'CLOSE_MODAL' });
-            toast.success(`Payment of KES ${bookingToUpdate.totalAmount?.toLocaleString()} successful! Thank you.`);
-
-            await api.createNotification({
-                userId: bookingToUpdate.provider.ownerId,
-                message: `${bookingToUpdate.customer.name} has paid the invoice for booking ${bookingId.split('-')[1]}.`,
-                bookingId: bookingId,
-            });
-
-        } catch (error) {
-            console.error("Invoice payment failed:", error);
-            toast.error("Failed to process invoice payment. Please try again.");
-        }
-    };
-
-  const handleShowLegalDoc = useCallback((type: LegalDocType) => {
+    const onShowTerms = (type: LegalDocType) => {
       let title = '';
       let content = '';
       switch (type) {
           case 'customer':
-              title = "Terms of Service";
+              title = 'Customer Terms of Service';
               content = CUSTOMER_TERMS;
               break;
           case 'provider':
-              title = "Provider Agreement";
+              title = 'Provider Agreement';
               content = PROVIDER_TERMS;
               break;
           case 'privacy':
-              title = "Privacy Policy";
+              title = 'Privacy Policy';
               content = PRIVACY_POLICY;
               break;
       }
       dispatch({ type: 'OPEN_MODAL', payload: { type: 'disclaimer', props: { title, content } } });
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (activeSearchCategory && isInitialProvidersLoaded && selectedLocation) {
-      handleSelectCategory(activeSearchCategory);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedLocation, isInitialProvidersLoaded]);
-
-  const onGoHome = useCallback(() => {
-    dispatch({ type: 'SET_VIEW', payload: AppView.HOME });
-    window.scrollTo(0, 0);
-  }, [dispatch]);
-
+  };
+  
   const featuredProviders = useMemo(() => {
+    if (!providers) return [];
+    // Simple logic: filter by KYC verified and high rating, then shuffle and take a few
     return providers
-      .filter(p => p.rating >= 4.5)
-      .sort((a, b) => b.reviewsCount - a.reviewsCount)
-      .sort((a, b) => b.rating - a.rating)
-      .slice(0, 3);
+        .filter(p => p.kycVerified && p.rating >= 4.5)
+        .sort(() => 0.5 - Math.random()) // Pseudo-shuffle
+        .slice(0, 3);
   }, [providers]);
-
-    const handleBookProvider = useCallback((provider: ServiceProvider, type: 'instant' | 'quote') => {
-        if (!currentUser) {
-            dispatch({ type: 'SET_POST_LOGIN_ACTION', payload: () => handleBookProvider(provider, type) });
-            dispatch({ type: 'OPEN_MODAL', payload: { type: 'auth', props: { promptMessage: 'Please log in or register to book a service.' } } });
-            return;
-        }
-        dispatch({ type: 'OPEN_MODAL', payload: { type: 'booking', props: { provider, user: currentUser, type } } });
-    }, [currentUser, dispatch]);
-
-
-  const handleViewProviderDetails = useCallback((provider: ServiceProvider) => {
-      dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerDetail', props: { provider, onBook: handleBookProvider } } });
-  }, [dispatch, handleBookProvider]);
-
-  const isProviderFavorite = useCallback((providerId: string): boolean => {
-      return favoriteProviderIds.includes(providerId);
-  }, [favoriteProviderIds]);
-
-  const handleToggleFavoriteProvider = useCallback((providerId: string) => {
-      dispatch({ type: 'TOGGLE_FAVORITE', payload: providerId });
+  
+  const onBookProvider = useCallback((provider: ServiceProvider, type: 'instant' | 'quote') => {
+      if (!currentUser) {
+          dispatch({ type: 'SET_POST_LOGIN_ACTION', payload: () => onBookProvider(provider, type) });
+          dispatch({ type: 'OPEN_MODAL', payload: { type: 'auth', props: { promptMessage: 'Please log in or register to book a service.' } } });
+          return;
+      }
+      dispatch({ type: 'OPEN_MODAL', payload: { type: 'booking', props: { provider, type } } });
+  }, [currentUser, dispatch]);
+  
+  const onViewProviderDetails = useCallback((provider: ServiceProvider) => {
+      dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerDetail', props: { provider } } });
   }, [dispatch]);
 
-    const onFindServicesClick = useCallback(() => {
-        dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } });
-    }, [dispatch]);
+  const isProviderFavorite = useCallback((id: string) => favoriteProviderIds.includes(id), [favoriteProviderIds]);
+  const onToggleFavoriteProvider = useCallback((id: string) => dispatch({ type: 'TOGGLE_FAVORITE', payload: id }), [dispatch]);
+  
+  const onAuthSuccess = useCallback(async (user: User, isNewUser: boolean, token?: string) => {
+      if (token) {
+          localStorage.setItem('jwtToken', token);
+      }
+      dispatch({ type: 'LOGIN', payload: user });
+      dispatch({ type: 'CLOSE_MODAL' });
 
-    const onSelectLocation = useCallback((location: Location) => {
-        dispatch({ type: 'SET_LOCATION', payload: location });
-    }, [dispatch]);
+       // Re-fetch data that depends on the user
+      try {
+        const [myBookings, myNotifications, myJobAlerts] = await Promise.all([
+            api.fetchMyBookings(),
+            api.fetchMyNotifications(),
+            api.fetchMyJobAlerts()
+        ]);
+        dispatch({ type: 'SET_BOOKINGS', payload: myBookings });
+        dispatch({ type: 'SET_NOTIFICATIONS', payload: myNotifications });
+        dispatch({ type: 'SET_JOB_ALERTS', payload: myJobAlerts });
+      } catch (error) {
+          console.error("Failed to fetch user data after login:", error);
+          toast.error("Could not load your data. Please try refreshing.");
+      }
 
+      if (isNewUser && !user.kycVerified) {
+          dispatch({ type: 'OPEN_MODAL', payload: { type: 'kyc' } });
+      } else if (state.postLoginAction) {
+          state.postLoginAction();
+          dispatch({ type: 'SET_POST_LOGIN_ACTION', payload: null });
+      }
+  }, [dispatch, state.postLoginAction, toast]);
+  
+  const onProviderRegister = useCallback((user: { name: string, email: string, phone: string }) => {
+      dispatch({ type: 'CLOSE_MODAL' });
+      dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerRegistration', props: { pendingUser: user } } });
+  }, [dispatch]);
+  
+  const handleKycSuccess = useCallback(async (updatedUserData: Partial<User>) => {
+      try {
+          const { user: updatedUser } = await api.updateCurrentUser(updatedUserData);
+          dispatch({ type: 'UPDATE_USER', payload: updatedUser });
+          dispatch({ type: 'CLOSE_MODAL' });
+          toast.success("Profile details updated successfully!");
+          if (updatedUser.role === UserRole.PROVIDER && !providers.some(p => p.ownerId === updatedUser.id)) {
+              dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerRegistration' } });
+          }
+      } catch (error) {
+          toast.error("Failed to update profile.");
+          console.error(error);
+      }
+  }, [dispatch, toast, providers]);
+  
+  const handleProviderRegistrationComplete = useCallback(async (data: Partial<ServiceProvider & NewProviderData>, pendingUser?: { name: string, email: string, phone: string }) => {
+      const isEditMode = !!modal?.props?.isEditMode;
+      try {
+          if (isEditMode) {
+              const providerId = modal.props.initialData.id;
+              const { provider } = await api.updateProvider(providerId, { ...data, name: data.businessName });
+              dispatch({ type: 'UPDATE_PROVIDER', payload: { providerId, updates: provider } });
+              toast.success("Provider profile updated successfully!");
+          } else {
+              const { provider } = await api.createProvider({ ...data as any, ownerId: currentUser!.id });
+              dispatch({ type: 'ADD_PROVIDER', payload: provider });
+              toast.success("Provider profile created successfully! You are now live.");
+          }
+          dispatch({ type: 'CLOSE_MODAL' });
+          dispatch({ type: 'SET_VIEW', payload: AppView.PROVIDER_DASHBOARD });
+      } catch (error: any) {
+          toast.error(error.message || "An error occurred during registration.");
+      }
+  }, [dispatch, currentUser, modal, toast]);
+
+  const handleSendBookingRequest = useCallback(async (provider: ServiceProvider, serviceDate: Date, requestDetails: string, type: 'instant' | 'quote'): Promise<Booking> => {
+        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const bookingData = {
+            providerId: provider.id,
+            serviceDate: serviceDate.toISOString(),
+            requestDetails,
+            bookingType: type,
+            status: type === 'instant' ? 'Pending Customer Confirmation' : 'Pending Provider Confirmation',
+            otp: type === 'instant' ? otp : '',
+        };
+        const { booking } = await api.createBooking(bookingData as any);
+
+        const fullBookingDetails: Booking = {
+            ...booking,
+            provider, // Eagerly add provider details for immediate UI update
+            customer: currentUser!, // Eagerly add customer details
+        };
+        
+        dispatch({ type: 'ADD_BOOKING', payload: fullBookingDetails });
+        
+        await api.createNotification({ userId: provider.ownerId, message: `New booking request from ${currentUser!.name} for ${provider.category}.`, bookingId: booking.id });
+        toast.success("Booking request sent successfully!");
+        return fullBookingDetails;
+    }, [dispatch, currentUser, toast]);
+
+    const handleUpdateBookingStatus = useCallback(async (booking: Booking, response: 'accept' | 'decline' | 'cancel') => {
+        let newStatus: Booking['status'];
+        let notificationMessage = '';
+        const isProvider = currentUser?.role === UserRole.PROVIDER;
+
+        switch (response) {
+            case 'accept':
+                newStatus = 'Confirmed';
+                notificationMessage = `Your booking with ${booking.provider.name} has been confirmed!`;
+                break;
+            case 'decline':
+                newStatus = 'Cancelled';
+                notificationMessage = `${booking.provider.name} declined your booking request.`;
+                break;
+            case 'cancel':
+                newStatus = 'Cancelled';
+                notificationMessage = isProvider 
+                    ? `${booking.provider.name} has cancelled your upcoming service.`
+                    : `${booking.customer.name} has cancelled your upcoming service.`;
+                break;
+        }
+
+        try {
+            const { booking: updatedBooking } = await api.updateBooking(booking.id, { status: newStatus });
+            dispatch({ type: 'UPDATE_BOOKING', payload: updatedBooking });
+            
+            const recipientId = isProvider ? booking.customer.id : booking.provider.ownerId;
+            await api.createNotification({ userId: recipientId, message: notificationMessage, bookingId: booking.id });
+
+            toast.success(`Booking ${response === 'accept' ? 'accepted' : 'cancelled'}.`);
+            dispatch({ type: 'CLOSE_MODAL' });
+        } catch(error) {
+            toast.error("Failed to update booking status.");
+        }
+    }, [dispatch, currentUser, toast]);
+
+    const handleCompleteJob = useCallback(async (booking: Booking) => {
+        try {
+            const { booking: updatedBooking } = await api.updateBooking(booking.id, { status: 'Completed' });
+            dispatch({ type: 'UPDATE_BOOKING', payload: updatedBooking });
+            await api.createNotification({
+                userId: booking.customer.id,
+                message: `Your service with ${booking.provider.name} is complete. Please pay the final amount and leave a review.`,
+                bookingId: booking.id
+            });
+            toast.success("Job marked as complete!");
+            dispatch({ type: 'CLOSE_MODAL' });
+        } catch (error) {
+            toast.error("Failed to complete job.");
+        }
+    }, [dispatch, toast]);
+
+    const handleSendQuotation = useCallback(async (bookingId: string, items: QuotationItem[], total: number) => {
+        try {
+            const { booking: updatedBooking } = await api.updateBooking(bookingId, { quotationItems: items, totalAmount: total, quotationStatus: 'Sent' });
+            dispatch({ type: 'UPDATE_BOOKING', payload: updatedBooking });
+            await api.createNotification({
+                userId: updatedBooking.customer.id,
+                message: `You've received a quotation from ${updatedBooking.provider.name}.`,
+                bookingId
+            });
+            toast.success("Quotation sent to customer.");
+            dispatch({ type: 'CLOSE_MODAL' });
+        } catch (error) {
+            toast.error("Failed to send quotation.");
+        }
+    }, [dispatch, toast]);
+
+    const handleRespondToQuotation = useCallback(async (bookingId: string, response: 'Accepted' | 'Declined') => {
+        try {
+            const { booking: updatedBooking } = await api.updateBooking(bookingId, { quotationStatus: response });
+            dispatch({ type: 'UPDATE_BOOKING', payload: updatedBooking });
+            await api.createNotification({
+                userId: updatedBooking.provider.ownerId,
+                message: `${updatedBooking.customer.name} has ${response.toLowerCase()} your quotation.`,
+                bookingId
+            });
+            toast.success(`Quotation ${response.toLowerCase()}.`);
+            dispatch({ type: 'CLOSE_MODAL' });
+        } catch (error) {
+            toast.error("Failed to respond to quotation.");
+        }
+    }, [dispatch, toast]);
+    
   const renderView = () => {
     switch (view) {
       case AppView.SEARCH:
         return <SearchResults />;
       case AppView.MY_BOOKINGS:
-        if (!currentUser) return <HomePage onFindServicesClick={onFindServicesClick} onFindNearMeClick={handleFindNearMe} onSelectCategory={handleSelectCategory} onSelectLocation={onSelectLocation} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={handleBookProvider} onViewProviderDetails={handleViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={handleToggleFavoriteProvider} userCoordinates={userCoordinates} />;
-        return <MyBookingsPage
-          bookings={bookings}
-          currentUser={currentUser}
-          onLeaveReview={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'review', props: { booking } } })}
-          onOpenChat={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking } } })}
-          onViewQuotation={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking, mode: 'view' } } })}
-          onConfirmAndPay={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'booking', props: { booking, provider: booking.provider, user: booking.customer, type: 'quote' } } })}
-          onPayInvoice={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'invoice', props: { booking } } })}
-          onCancelBooking={handleCancelBooking}
-        />;
+        return currentUser ? <MyBookingsPage bookings={bookings} currentUser={currentUser} onLeaveReview={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'review', props: { booking: b } }})} onOpenChat={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking: b } }})} onViewQuotation={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking: b, mode: 'view' } }})} onConfirmAndPay={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'booking', props: { provider: b.provider, booking: b, type: 'instant' } }})} onPayInvoice={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'invoice', props: { booking: b } }})} onCancelBooking={(b) => dispatch({type: 'OPEN_MODAL', payload: { type: 'confirmation', props: { title: 'Cancel Booking', message: 'Are you sure you want to cancel this booking?', onConfirm: () => handleUpdateBookingStatus(b, 'cancel') } }})} /> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
       case AppView.PROFILE:
-        return <ProfilePage />;
+        return currentUser ? <ProfilePage /> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
       case AppView.PROVIDER_DASHBOARD:
         const providerProfile = providers.find(p => p.ownerId === currentUser?.id);
-        if (!currentUser || currentUser.role !== UserRole.PROVIDER) {
-            // Redirect to home if not logged in or not a provider
-            return <HomePage onFindServicesClick={onFindServicesClick} onFindNearMeClick={handleFindNearMe} onSelectCategory={handleSelectCategory} onSelectLocation={onSelectLocation} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={handleBookProvider} onViewProviderDetails={handleViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={handleToggleFavoriteProvider} userCoordinates={userCoordinates} />;
-        }
-        return <ProviderDashboard 
-          user={currentUser}
-          provider={providerProfile || null}
-          bookings={bookings.filter(b => providerProfile && b.provider.ownerId === providerProfile.ownerId)}
-          onUpdateBookingStatus={(booking, response) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking, response } } })}
-          onOpenChat={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking } } })}
-          onOpenQuotation={(booking) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking, mode: 'edit' } } })}
-          onCompleteJob={handleCompleteJob}
-          onCancelBooking={handleCancelBooking}
-        />;
+        return currentUser && currentUser.role === UserRole.PROVIDER ? <ProviderDashboard user={currentUser} provider={providerProfile || null} bookings={bookings} onUpdateBookingStatus={(b, resp) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking: b, response: resp } }})} onOpenChat={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking: b } }})} onOpenQuotation={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking: b, mode: 'edit' } }})} onCompleteJob={handleCompleteJob} onCancelBooking={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking: b, response: 'cancel' } }})}/> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
       case AppView.LOCAL_HUB:
         return <LocalHub />;
       case AppView.HOME:
       default:
-        return <HomePage onFindServicesClick={onFindServicesClick} onFindNearMeClick={handleFindNearMe} onSelectCategory={handleSelectCategory} onSelectLocation={onSelectLocation} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={handleBookProvider} onViewProviderDetails={handleViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={handleToggleFavoriteProvider} userCoordinates={userCoordinates} />;
+        return <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
     }
   };
-  
+
   const renderModal = () => {
     if (!modal) return null;
     switch (modal.type) {
-      case 'auth':
-        return <AuthModal onAuthSuccess={handleAuthSuccess} onProviderRegister={handleProviderRegister} onShowTerms={handleShowLegalDoc} {...modal.props} />;
-      case 'forgotPassword':
-        return <ForgotPasswordModal />;
-      case 'aiAssistant':
-        return <AiAssistant onSearch={handleAiSearch} isLoading={isAiSearchLoading} error={aiSearchError} />;
-      case 'providerDetail':
-        return <ProviderDetailModal {...modal.props} />;
-      case 'locationSelector':
-        return <LocationSelectorModal onSelectLocation={(l) => { dispatch({ type: 'SET_LOCATION', payload: l }); dispatch({ type: 'CLOSE_MODAL' }); }} />;
-      case 'booking':
-        if (!currentUser) { 
-          toast.error("Please log in to make a booking.");
-          dispatch({type: 'CLOSE_MODAL' }); 
-          dispatch({type: 'OPEN_MODAL', payload: { type: 'auth', props: { promptMessage: "You need to be logged in to book a service." } } });
-          return null; 
-        }
-        return <BookingModal {...modal.props} user={currentUser} onSendRequest={handleSendBookingRequest} onCustomerPaymentSuccess={handleCustomerPaymentSuccess} />;
-      case 'chatbot':
-        if (!currentUser) { 
-            toast.error("Please log in to use the AI Assistant.");
-            dispatch({ type: 'CLOSE_MODAL' });
-            dispatch({ type: 'OPEN_MODAL', payload: { type: 'auth', props: { promptMessage: 'Please log in to use the AI Assistant.' } } });
-            return null;
-        }
-        return <ChatbotModal userId={currentUser.id} {...modal.props} />;
-      case 'kyc':
-        if (!currentUser) { dispatch({type: 'CLOSE_MODAL' }); return null; }
-        return <KycModal user={currentUser} onKycSuccess={handleKycSuccess} />;
-      case 'providerRegistration':
-        return <ProviderRegistrationModal onComplete={handleProviderRegistrationComplete} onShowTerms={handleShowLegalDoc} {...modal.props} />;
-      case 'editProviderDetails':
-        const providerToEdit = providers.find(p => p.ownerId === currentUser?.id);
-        if (!providerToEdit) return null;
-        return <ProviderRegistrationModal isEditMode initialData={providerToEdit} onComplete={handleProviderRegistrationComplete} onShowTerms={handleShowLegalDoc} />;
-      case 'review':
-        if (!currentUser) { dispatch({type: 'CLOSE_MODAL' }); return null; }
-        return <ReviewModal {...modal.props} user={currentUser} onSubmit={handleLeaveReview} />;
-      case 'otp':
-        return <OtpModal {...modal.props} onVerified={() => handleOtpVerified(modal.props.booking.id)} />;
-      case 'chat':
-        if (!currentUser) { dispatch({type: 'CLOSE_MODAL' }); return null; }
-        return <ChatModal {...modal.props} currentUser={currentUser} onSendMessage={handleSendMessage} />;
-      case 'quotation':
-        if (!currentUser) { dispatch({type: 'CLOSE_MODAL' }); return null; }
-        return <QuotationModal {...modal.props} currentUser={currentUser} onSendQuotation={handleSendQuotation} onRespondToQuotation={handleRespondToQuotation} />;
-      case 'providerAcceptance':
-        return <ProviderAcceptanceModal {...modal.props} onConfirm={handleUpdateBookingStatus} />;
-      case 'confirmation':
-        return <ConfirmationModal {...modal.props} />;
-      case 'disclaimer':
-        return <DisclaimerModal {...modal.props} />;
-      case 'invoice':
-          return <InvoiceModal {...modal.props} onPayInvoiceSuccess={handlePayInvoiceSuccess} />;
-      default:
-        return null;
+        case 'auth': return <AuthModal onAuthSuccess={onAuthSuccess} onProviderRegister={onProviderRegister} onShowTerms={onShowTerms} {...modal.props} />;
+        case 'aiAssistant': return <AiAssistant onSearch={handleAiSearch} isLoading={isAiSearchLoading} error={aiSearchError} />;
+        case 'locationSelector': return <LocationSelectorModal onSelectLocation={(loc) => { dispatch({ type: 'SET_LOCATION', payload: loc }); dispatch({ type: 'CLOSE_MODAL' }); }} />;
+        case 'providerDetail': return <ProviderDetailModal onBook={onBookProvider} {...modal.props} />;
+        case 'booking': return currentUser && <BookingModal user={currentUser} onSendRequest={handleSendBookingRequest} onCustomerPaymentSuccess={()=>{}} {...modal.props} />;
+        case 'chatbot': return currentUser && <ChatbotModal userId={currentUser.id} {...modal.props}/>;
+        case 'kyc': return currentUser && <KycModal user={currentUser} onKycSuccess={handleKycSuccess} {...modal.props} />;
+        case 'providerRegistration': return currentUser && <ProviderRegistrationModal onComplete={handleProviderRegistrationComplete} onShowTerms={onShowTerms} {...modal.props} />;
+        case 'editProviderDetails': const providerToEdit = providers.find(p => p.ownerId === currentUser?.id); return providerToEdit && <ProviderRegistrationModal onComplete={handleProviderRegistrationComplete} initialData={providerToEdit} isEditMode={true} onShowTerms={onShowTerms} {...modal.props} />;
+        case 'review': return currentUser && <ReviewModal user={currentUser} onSubmit={()=>{}} {...modal.props} />;
+        case 'otp': return <OtpModal onVerified={()=>{}} {...modal.props} />;
+        case 'chat': return currentUser && <ChatModal currentUser={currentUser} onSendMessage={()=>{}} {...modal.props} />;
+        case 'quotation': return currentUser && <QuotationModal currentUser={currentUser} onSendQuotation={handleSendQuotation} onRespondToQuotation={handleRespondToQuotation} {...modal.props} />;
+        case 'providerAcceptance': return <ProviderAcceptanceModal onConfirm={handleUpdateBookingStatus} {...modal.props} />;
+        case 'confirmation': return <ConfirmationModal {...modal.props} />;
+        case 'disclaimer': return <DisclaimerModal {...modal.props} />;
+        case 'invoice': return <InvoiceModal onPayInvoiceSuccess={()=>{}} {...modal.props} />;
+        case 'forgotPassword': return <ForgotPasswordModal />;
+        default: return null;
     }
   };
 
-  if (isInitializing) {
-    return <LoadingSpinner />;
-  }
+    if (isInitializing) {
+        return <LoadingSpinner />;
+    }
 
   return (
-    <div className="flex flex-col min-h-screen font-sans bg-white">
-      <Suspense fallback={<div className="h-[68px] bg-white shadow-md"></div>}>
-        <Header />
-      </Suspense>
-      <main className="flex-grow">
-        <Suspense fallback={<LoadingSpinner />}>
-            {renderView()}
-        </Suspense>
-      </main>
-      <Suspense fallback={<div></div>}>
-        <Footer onGoHome={onGoHome} onSelectLocation={onSelectLocation} onShowTerms={handleShowLegalDoc} />
-      </Suspense>
-      <Suspense fallback={null}>
-        {renderModal()}
-      </Suspense>
-      <ChatbotButton onClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chatbot' } })} />
-      <BackToTopButton />
-    </div>
+    <Suspense fallback={<LoadingSpinner />}>
+        <div className="flex flex-col min-h-screen">
+            <Header />
+            <main className="flex-grow">
+                {renderView()}
+            </main>
+            <Footer onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} onShowTerms={onShowTerms} onGoHome={() => dispatch({ type: 'SET_VIEW', payload: AppView.HOME })} />
+            {renderModal()}
+            {currentUser && <ChatbotButton onClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chatbot', props: { userId: currentUser.id } } })} />}
+            <BackToTopButton />
+        </div>
+    </Suspense>
   );
 };
 

@@ -1,107 +1,69 @@
 # V-Ken Serve - AI-Powered Service Platform
 
-V-Ken Serve is an AI-powered platform to find and book local home, corporate, and tour services across Kenya. It connects customers with trusted service providers and features secure booking, payment, and AI-driven search.
-
-This document provides a complete guide to deploying the application to the web for testing and production use.
-
-## Project Structure
-
-- **`/` (root)**: Contains the frontend application source files (React, TypeScript). This part is served as a static site.
-- **`/backend`**: Contains the Node.js, Express, and Prisma backend server. This is the application's "brain."
+This project is a full-stack AI-powered platform for finding and booking local services in Kenya.
 
 ---
 
-## Deployment Guide (Live on the Internet)
+## Simplified Google Cloud Deployment Guide
 
-This guide will walk you through deploying the entire application to **Render**, a modern cloud hosting service with a free tier that is perfect for testing. This process will give you one public URL where your app will be live.
+This guide assumes you have a Google Cloud account, a GitHub account, and have pushed this code to a new GitHub repository. The deployment is now heavily automated.
 
-### Prerequisites
+### Step 1: Set Up Your Google Cloud Project
 
-1.  **GitHub Account**: You need to upload the project code to a GitHub repository. [Sign up here](https://github.com/).
-2.  **Render Account**: This is where we will host the application. [Sign up for a free account here](https://render.com/).
-3.  **Cloud Database**: The app needs a PostgreSQL database that is accessible online. [Neon](https://neon.tech/) offers a great free option.
+1.  **Create a Project**: Go to the [Google Cloud Console](https://console.cloud.google.com/), create a new project (e.g., `vken-serve-app`), and copy its **Project ID**.
+2.  **Enable APIs**: In your new project, enable these APIs:
+    *   Cloud Run
+    *   Cloud SQL Admin
+    *   Cloud Build
+    *   Artifact Registry
+    *   Secret Manager
+    *   IAM
+3.  **Install & Configure gcloud**: [Install the Cloud SDK](https://cloud.google.com/sdk/docs/install), then run `gcloud auth login` and `gcloud config set project YOUR_PROJECT_ID` in your terminal.
 
----
+### Step 2: Create the Database (Cloud SQL)
 
-### Step 1: Get Your Cloud Database
+1.  Go to the **SQL** page in the Cloud Console.
+2.  Click **CREATE INSTANCE** -> **PostgreSQL**.
+3.  **Instance ID**: `vken-serve-db`.
+4.  **Generate and save** the `postgres` user password.
+5.  Choose a **Region** (e.g., `us-central1`).
+6.  Once created, go into the instance -> **Databases** -> **CREATE DATABASE** with the name `vken-serve-db`.
+7.  Go back to the instance **Overview** page and **copy the Instance connection name**.
 
-1.  Go to [Neon](https://neon.tech/), sign up, and create a new project.
-2.  Once your project is created, find the **Connection Details** or **Connection String**.
-3.  Look for a URL that starts with `postgresql://...`. This is your `DATABASE_URL`.
-4.  **Copy this URL.** You will need it in Step 3.
+### Step 3: Store Your Secrets (Secret Manager)
 
----
+1.  Go to the **Secret Manager** page in the Cloud Console.
+2.  Create the following secrets. **The names must match exactly.**
+    *   `API_KEY`: Your Google Gemini API key.
+    *   `JWT_SECRET`: A long, random string for signing tokens.
+    *   `VAPID_PUBLIC_KEY`: Your public key for web push notifications.
+    *   `VAPID_PRIVATE_KEY`: Your private key for web push notifications.
+    *   `DATABASE_URL`: The most important one. Use this template, filling in your details:
+        `postgresql://postgres:YOUR_DB_PASSWORD@localhost/vken-serve-db?host=/cloudsql/YOUR_INSTANCE_CONNECTION_NAME`
+3.  Go to the **IAM** page, find the member ending in `@cloudbuild.gserviceaccount.com`, and give it the **Secret Manager Secret Accessor** role.
 
-### Step 2: Push Your Project to GitHub
+### Step 4: Automate Deployment (Cloud Build)
 
-1.  Create a new repository on your GitHub account (e.g., `vken-serve-app`).
-2.  Upload the entire project folder (including the `backend` directory) to this new repository.
+1.  **Create Docker Repository**: Go to **Artifact Registry**, click **CREATE REPOSITORY**.
+    *   **Name**: `vken-serve-repo`
+    *   **Format**: `Docker`
+    *   **Region**: Same as your SQL instance.
+2.  **Create Deploy Trigger**: Go to **Cloud Build** -> **Triggers**.
+    *   **Connect** your GitHub repository.
+    *   **CREATE TRIGGER** with these settings:
+        *   **Event**: `Push to a branch`
+        *   **Branch**: `^main$`
+        *   **Configuration**: `Cloud Build configuration file (yaml or json)`. Location should be `/cloudbuild.yaml`.
+        *   **Advanced -> Substitution variables**:
+            *   **Variable**: `_INSTANCE_CONNECTION_NAME`
+            *   **Value**: Paste the **instance connection name** you copied from the SQL page.
 
----
+### Step 5: Deploy
 
-### Step 3: Deploy on Render
-
-1.  Log in to your [Render Dashboard](https://dashboard.render.com/).
-2.  Click **New +** and select **Web Service**.
-3.  Connect your GitHub account and select the repository you created in Step 2.
-4.  Render will ask you to configure the service. Fill in the details as follows:
-    - **Name**: `vken-serve` (or any name you prefer).
-    - **Root Directory**: Leave this blank (it should be the root of your repo).
-    - **Environment**: `Node`.
-    - **Region**: Choose a region closest to you (e.g., Frankfurt).
-    - **Branch**: `main` (or your default branch).
-    - **Build Command**: `npm install --prefix backend && npx prisma migrate deploy --schema=./backend/prisma/schema.prisma && npx prisma generate --schema=./backend/prisma/schema.prisma`
-      *This single command installs dependencies, runs the database migration, and prepares the Prisma client.*
-    - **Start Command**: `npm start --prefix backend`
-      *This command tells Render how to start your server.*
-
-5.  Scroll down to the **Environment** section. This is the most important part.
-    - Click **Add Environment Variable**.
-    - You need to add three variables. **These must be set correctly for the application to run.**
-        1.  **Key**: `DATABASE_URL`
-            - **Value**: Paste the database connection string you copied from Neon in Step 1.
-        2.  **Key**: `API_KEY`
-            - **Value**: Paste your Google Gemini API key. You can get one from [Google AI Studio](https://aistudio.google.com/).
-        3.  **Key**: `JWT_SECRET`
-            - **Value**: Create a long, random, and secret string. You can use an online password generator for this. *Example: `my_super_secret_and_long_jwt_key_for_vken_serve`*
-
-6.  Select the **Free** instance type at the bottom of the page.
-7.  Click **Create Web Service**.
-
-### Step 4: Your App is Live!
-
-Render will now build and deploy your application. The build command will automatically set up your database schema. Once it's finished, you will see a "Live" status and a public URL at the top of the page (e.g., `https://vken-serve.onrender.com`).
-
-**This is the link you can share with your well-wishers to test the full application!**
-
----
-
-## Local Development (For Making Code Changes)
-
-If you want to run the app on your own computer for development.
-
-### 1. Backend Setup
-
-1.  Navigate to the `backend` directory: `cd backend`.
-2.  Create a file named `.env` in the `backend` directory. Copy the following content into it and replace the placeholder values with your actual credentials:
+1.  **Push Your Code**: Commit your changes and push them to the `main` branch of your GitHub repository.
+    ```bash
+    git add .
+    git commit -m "Deploy to Google Cloud"
+    git push origin main
     ```
-    # PostgreSQL database connection string (e.g., from Neon or a local Docker instance)
-    DATABASE_URL="postgresql://user:password@host:port/database"
-
-    # Your Google Gemini API key from Google AI Studio
-    API_KEY="your_google_gemini_api_key"
-
-    # A long, random, secret string for signing authentication tokens
-    JWT_SECRET="your_super_secret_jwt_key"
-    ```
-3.  Install dependencies: `npm install`.
-4.  Run the database migration to set up your database schema: `npx prisma migrate dev --name init`.
-5.  Start the development server: `npm run dev`. It will run on `http://localhost:5000`.
-
-### 2. Frontend Setup
-
-The frontend requires no build step.
-
-1.  From the **root** of the project, install a simple server: `npm install -g serve`.
-2.  Run the server: `serve .`
-3.  Open your browser to the URL provided (e.g., `http://localhost:3000`). The frontend will automatically connect to the local backend.
+2.  **Monitor**: Go to the **Cloud Build History** page to watch your automated deployment. Once it succeeds, go to the **Cloud Run** page to find the public URL for your live application.

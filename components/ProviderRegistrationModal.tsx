@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-// FIX: Import NewProviderData from types.ts to resolve circular dependency
 import { ServiceCategory, Location, DetailedService, LegalDocType, NewProviderData, ServiceProvider } from '../types';
 import { CloseIcon, CheckIcon, WarningIcon, SparklesIcon, TrashIcon, CameraIcon } from './IconComponents';
 import { LOCATIONS, PROVIDER_REGISTRABLE_CATEGORIES, TOUR_SERVICES, LOCATION_COORDINATES } from '../constants';
@@ -426,5 +425,4 @@ const ProviderRegistrationModal: React.FC<ProviderRegistrationModalProps> = ({ o
     );
 };
 
-// FIX: Added missing default export.
 export default ProviderRegistrationModal;

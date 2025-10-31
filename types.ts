@@ -1,5 +1,6 @@
 
 
+
 export enum Location {
   NAIROBI = "Nairobi",
   MOMBASA = "Mombasa",

@@ -10,39 +10,53 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helper to robustly parse JSON from AI responses that might include markdown backticks or other text.
 function robustJsonParse(text) {
-    // Find the start of the JSON block
-    const firstBracket = text.indexOf('{');
-    const firstSquareBracket = text.indexOf('[');
-    
-    let start = -1;
-    if (firstBracket === -1) start = firstSquareBracket;
-    else if (firstSquareBracket === -1) start = firstBracket;
-    else start = Math.min(firstBracket, firstSquareBracket);
+    let jsonString = text.trim();
 
-    if (start === -1) {
-        throw new Error("No JSON object or array found in the AI response.");
+    // Case 1: The response is wrapped in markdown ```json ... ```
+    const markdownMatch = jsonString.match(/```json\s*([\s\S]*?)\s*```/);
+    if (markdownMatch && markdownMatch[1]) {
+        jsonString = markdownMatch[1].trim();
+    } else {
+        // Case 2: The JSON is embedded in conversational text.
+        // Find the first opening bracket '{' or '['
+        const firstOpenBracket = jsonString.indexOf('{');
+        const firstOpenSquare = jsonString.indexOf('[');
+        
+        let startIndex = -1;
+        if (firstOpenBracket === -1) {
+            startIndex = firstOpenSquare;
+        } else if (firstOpenSquare === -1) {
+            startIndex = firstOpenBracket;
+        } else {
+            startIndex = Math.min(firstOpenBracket, firstOpenSquare);
+        }
+
+        if (startIndex > -1) {
+            // Find the last closing bracket '}' or ']'
+            const lastCloseBracket = jsonString.lastIndexOf('}');
+            const lastCloseSquare = jsonString.lastIndexOf(']');
+            const endIndex = Math.max(lastCloseBracket, lastCloseSquare);
+
+            if (endIndex > startIndex) {
+                // Slice out the potential JSON string.
+                jsonString = jsonString.substring(startIndex, endIndex + 1);
+            }
+        }
     }
-
-    // Find the end of the JSON block
-    const lastBracket = text.lastIndexOf('}');
-    const lastSquareBracket = text.lastIndexOf(']');
-    const end = Math.max(lastBracket, lastSquareBracket);
-
-    if (end === -1) {
-        throw new Error("Incomplete JSON object or array in the AI response.");
-    }
-
-    const jsonString = text.substring(start, end + 1);
 
     try {
+        // Attempt to parse the cleaned/extracted string.
         return JSON.parse(jsonString);
     } catch (e) {
-        console.error("Failed to parse extracted JSON:", e);
-        console.error("Extracted string for parsing:", jsonString);
-        console.error("Original full text from AI:", text);
-        throw new Error("AI returned malformed JSON content.");
+        console.error("JSON Parsing Error:", e.message);
+        console.error("--- Original AI Text ---");
+        console.error(text);
+        console.error("--- String Attempted to Parse ---");
+        console.error(jsonString);
+        throw new Error("AI returned a response that could not be parsed as JSON.");
     }
 }
+
 
 // --- Chatbot Session Management ---
 const chatSessions = new Map(); // Stores active Chat objects by sessionId

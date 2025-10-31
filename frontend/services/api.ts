@@ -137,7 +137,18 @@ export async function updateBooking(bookingId: string, updates: Partial<Booking>
 }
 
 
-// --- Notification API ---
+// --- Notification & Push API ---
+export async function getVapidPublicKey(): Promise<{ publicKey: string }> {
+    return fetchData('/notifications/vapid-public-key');
+}
+
+export async function savePushSubscription(subscription: PushSubscription): Promise<{ message: string }> {
+    return fetchData('/notifications/subscribe', {
+        method: 'POST',
+        body: JSON.stringify(subscription),
+    });
+}
+
 export async function createNotification(notificationData: Omit<Notification, 'id' | 'timestamp' | 'read'>): Promise<{ message: string; notification: Notification }> {
     return fetchData('/notifications', {
         method: 'POST',

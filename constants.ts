@@ -251,5 +251,5 @@ export const LOCATION_SPECIFIC_TOUR_DETAILS: Partial<Record<Location, Partial<Re
             description: "Enjoy panoramic views and refreshing hikes in the hills surrounding Machakos.",
             services: ["Ol Donyo Sabuk National Park", "Iveti Hills Hike", "Mua Hills Exploration"]
         }
-    }
+    },
 };

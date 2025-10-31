@@ -6,6 +6,7 @@ const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const webpush = require('web-push');
 const {
   parseServiceRequest,
   generateProviderProfile,
@@ -28,6 +29,17 @@ const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkey_please_change_this_in_production'; // Strongly recommend a robust secret
+
+// VAPID keys for web push notifications
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+
+if (vapidPublicKey && vapidPrivateKey) {
+  webpush.setVapidDetails('mailto:support@vkenserve.com', vapidPublicKey, vapidPrivateKey);
+  console.log("VAPID details set for web-push.");
+} else {
+  console.warn("VAPID keys not configured. Push notifications will be disabled.");
+}
 
 // --- Helper for Enum mapping ---
 const toPrismaEnum = (str) => {
@@ -60,6 +72,38 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+// --- Push Notification Helper ---
+async function sendPushNotification(userId, payload) {
+  if (!vapidPublicKey || !vapidPrivateKey) {
+    console.log("Push notifications disabled, skipping send.");
+    return;
+  }
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { pushSubscription: true }
+    });
+
+    if (user && user.pushSubscription) {
+      // The subscription object is stored as JSON in the database
+      const subscription = user.pushSubscription;
+      await webpush.sendNotification(subscription, JSON.stringify(payload));
+      console.log(`Push notification sent to user ${userId}`);
+    }
+  } catch (error) {
+    console.error(`Error sending push notification to user ${userId}:`, error.body || error);
+    // If subscription is expired or invalid (e.g., 404 or 410 status), delete it
+    if (error.statusCode === 404 || error.statusCode === 410) {
+      console.log(`Subscription for user ${userId} is invalid. Removing from DB.`);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { pushSubscription: null }
+      });
+    }
+  }
+}
+
 
 // --- API Routes ---
 
@@ -798,6 +842,18 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
                 quotationItems: true,
             }
         });
+
+        // Send Push Notification to Provider
+        const provider = await prisma.serviceProvider.findUnique({ where: { id: newBooking.providerId } });
+        if (provider) {
+            const customer = await prisma.user.findUnique({ where: { id: newBooking.customerId } });
+            const payload = {
+                title: 'New Booking Request!',
+                body: `${customer.name} requested a ${ServiceCategory[provider.category] || provider.category} service.`
+            };
+            await sendPushNotification(provider.ownerId, payload);
+        }
+
         res.status(201).json({ message: 'Booking created successfully', booking: newBooking });
     } catch (error) {
         console.error('Error creating booking:', error);
@@ -841,7 +897,10 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
     try {
         const existingBooking = await prisma.booking.findUnique({
             where: { id },
-            include: { provider: { select: { ownerId: true, id: true } } }
+            include: { 
+                provider: { select: { ownerId: true, id: true, name: true } },
+                customer: { select: { id: true, name: true } }
+            }
         });
 
         if (!existingBooking) {
@@ -934,6 +993,28 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
             }
         });
 
+        // Send push notification if status changed
+        if (status && status !== existingBooking.status) {
+            let notificationMessage = '';
+            let recipientId;
+
+            if (isProvider) { // Provider is making the change
+                recipientId = existingBooking.customerId;
+                if (status === 'Confirmed') notificationMessage = `Your booking with ${existingBooking.provider.name} has been confirmed!`;
+                else if (status === 'Cancelled') notificationMessage = `${existingBooking.provider.name} has cancelled your booking.`;
+                else if (status === 'Completed') notificationMessage = `Your service with ${existingBooking.provider.name} is complete. Please pay and leave a review.`;
+            } else { // Customer is making the change
+                recipientId = existingBooking.provider.ownerId;
+                if (status === 'Cancelled') notificationMessage = `${existingBooking.customer.name} has cancelled their booking with you.`;
+            }
+            
+            if (notificationMessage && recipientId) {
+                const payload = { title: 'Booking Status Updated', body: notificationMessage };
+                await sendPushNotification(recipientId, payload);
+            }
+        }
+
+
         if (quotationItems) {
             await prisma.quotationItem.deleteMany({ where: { bookingId: id } });
             await prisma.quotationItem.createMany({
@@ -965,6 +1046,27 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
 
 
 // Notifications Endpoints
+app.get('/api/notifications/vapid-public-key', (req, res) => {
+    if (!vapidPublicKey) {
+        return res.status(500).json({ message: 'VAPID public key not configured on server.' });
+    }
+    res.status(200).json({ publicKey: vapidPublicKey });
+});
+
+app.post('/api/notifications/subscribe', authenticateToken, async (req, res) => {
+    const subscription = req.body;
+    try {
+        await prisma.user.update({
+            where: { id: req.user.userId },
+            data: { pushSubscription: subscription },
+        });
+        res.status(201).json({ message: 'Subscription saved.' });
+    } catch (error) {
+        console.error('Error saving push subscription:', error);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+});
+
 app.post('/api/notifications', authenticateToken, async (req, res) => {
     const { userId, message, bookingId } = req.body;
     try {

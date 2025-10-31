@@ -199,9 +199,11 @@ export const ListIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 export const GlobeIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 000-18m0 18a9 9 0 010-18m0 18v0m0-18v0m-3.5 15.5a9 9 0 007 0m-7-13a9 9 0 007 0" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.8 3.8A9 9 0 1 0 20.2 20.2A9 9 0 0 0 3.8 3.8Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 0 0 9-9" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12a9 9 0 0 1 9-9" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M2 12h20" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2a15 15 0 0 1 5.2 10 15 15 0 0 1-10.4 0A15 15 0 0 1 12 2Z" />
     </svg>
 );
 
@@ -229,7 +231,6 @@ export const ServiceCategoryIcon: React.FC<{ category: ServiceCategory; classNam
             case ServiceCategory.GARDENING_LANDSCAPING: return <svg {...props}><path d="M3 22v-4.172a2 2 0 0 1 .586-1.414L12 8l8.414 8.414A2 2 0 0 1 21 17.828V22" /><path d="M10 9a2 2 0 1 1-4 0" /><path d="M16 13a2 2 0 1 1-4 0" /></svg>;
             case ServiceCategory.ELECTRICIAN: return <svg {...props}><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>;
             case ServiceCategory.PEST_CONTROL: return <svg {...props}><path d="M10 20v-5" /><path d="M14 20v-5" /><path d="M12 15a5 5 0 0 0-5-5h10a5 5 0 0 0-5 5z" /><path d="M18 10V8" /><path d="M6 10V8" /><path d="M12 10V4" /><path d="m16 4-2 2" /><path d="m8 4 2 2" /></svg>;
-            // FIX: Removed duplicated and malformed line of code.
             case ServiceCategory.CARPENTRY: return <svg {...props}><path d="M12 22 2 12 12 2l10 10-10 10z" /><path d="m14 10-4 4" /><path d="m10 10 4 4" /><path d="M18 14 12 8" /></svg>;
             case ServiceCategory.INTERIOR_DESIGN: return <svg {...props}><path d="m2 16 2.31 3.11a2.2 2.2 0 0 0 3.38 0L10 16" /><path d="m22 16-2.31 3.11a2.2 2.2 0 0 1-3.38 0L14 16" /><path d="M10 2v14" /><path d="M14 2v14" /><path d="M12 2v20" /></svg>;
             case ServiceCategory.TUTORING_EDUCATION: return <svg {...props}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>;

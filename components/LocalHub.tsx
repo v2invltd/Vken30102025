@@ -71,7 +71,7 @@ const LocalHub: React.FC = () => {
                             <p className="text-lg font-medium text-gray-700">{hubData.weather.description}</p>
                         </div>
                     </div>
-                    <p className="text-xs text-gray-400 mt-3 text-right">Data by OpenWeatherMap</p>
+                    <p className="text-xs text-gray-400 mt-3 text-right">Data from Google Search</p>
                 </div>
 
                 {/* Did You Know? Card */}
