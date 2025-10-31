@@ -1,0 +1,8 @@
+{
+  "name": "V-Ken Serve30.10.2025",
+  "description": "An AI-powered platform to find and book local home, corporate, and tour services across Kenya. Connects customers with trusted service providers with secure booking and payment.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
