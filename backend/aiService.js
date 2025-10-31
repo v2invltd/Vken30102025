@@ -1,4 +1,4 @@
-const { GoogleGenAI, Type } = require('@google/genai');
+const { GoogleGenAI, Type } = require('@google/ai');
 const { SERVICE_CATEGORIES, LOCATIONS } = require('./constants');
 
 // Ensure API_KEY is loaded from environment variables
@@ -189,51 +189,67 @@ async function getLocalNews(location) {
     };
 
     try {
+        const prompt = `Find the top 2-3 latest news headlines for ${location}, Kenya. For each headline, provide the title, a direct URL to the article, and the source's name.`;
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Find the top 2-3 latest news headlines specifically for ${location}, Kenya.`,
-            config: { tools: [{ googleSearch: {} }] }
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING, description: "The news headline." },
+                            url: { type: Type.STRING, description: "The URL to the news article." },
+                            sourceName: { type: Type.STRING, description: "The name of the news source (e.g., 'The Standard', 'Citizen TV')." }
+                        },
+                        required: ["title", "url", "sourceName"]
+                    }
+                }
+            }
         });
-        
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        
-        if (groundingChunks.length === 0) {
-            console.warn(`Gemini Search found no news for ${location}.`);
-            return [];
-        }
 
-        return groundingChunks
-            .filter(chunk => chunk.web) // Only process chunks that have a 'web' property
-            .map(chunk => ({
-                title: chunk.web.title,
-                url: chunk.web.uri,
-                source: { name: getHostname(chunk.web.uri) }
-            }))
-            .slice(0, 3);
-            
-    } catch(e) {
+        const newsItems = robustJsonParse(response.text);
+        // Map the result to the format expected by the frontend
+        return newsItems.map(item => ({
+            title: item.title,
+            url: item.url,
+            source: { name: item.sourceName || getHostname(item.url) }
+        }));
+
+    } catch (e) {
         console.error(`Error getting Gemini news for ${location}:`, e);
         return [];
     }
 }
 
 async function getLocalEvents(location) {
-  const model = "gemini-2.5-flash";
-  const prompt = `List 2-3 upcoming events in ${location}, Kenya (like concerts, markets, festivals).`;
   try {
+    const prompt = `List 2-3 upcoming public events in ${location}, Kenya (like concerts, markets, festivals). For each event, provide the event title, a URL for more information if available, and a simple date description (e.g., 'This Weekend', 'July 25th').`;
+
     const response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: { tools: [{ googleSearch: {} }] }
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+            tools: [{ googleSearch: {} }],
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING, description: "The name of the event." },
+                        url: { type: Type.STRING, description: "A URL for more information." },
+                        date: { type: Type.STRING, description: "A simple date description." }
+                    },
+                    required: ["title", "date"]
+                }
+            }
+        }
     });
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-     return groundingChunks
-        .filter(chunk => chunk.web) // Only process chunks that have a 'web' property
-        .map(chunk => ({
-            title: chunk.web.title,
-            url: chunk.web.uri,
-            date: 'Upcoming', // Search grounding doesn't reliably provide dates, so we use a generic label
-        })).slice(0, 3);
+    return robustJsonParse(response.text);
   } catch (error) {
     console.error(`Error getting events for ${location}:`, error);
     return [];

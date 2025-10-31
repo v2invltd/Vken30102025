@@ -13,7 +13,7 @@ export const LOCATION_IMAGES: { [key in Location]: string } = {
     [Location.THIKA]: 'https://images.pexels.com/photos/450441/pexels-photo-450441.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
     [Location.KIAMBU]: 'https://images.pexels.com/photos/931007/pexels-photo-931007.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1&fit=crop',
     [Location.NYERI]: 'https://images.pexels.com/photos/1671325/pexels-photo-1671325.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1',
-    [Location.MERU]: 'https://images.pexels.com/photos/773453/pexels-photo-773453.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1&fit=crop',
+    [Location.MERU]: 'https://images.pexels.com/photos/11194514/pexels-photo-11194514.jpeg?auto=compress&cs=tinysrgb&w=400&h=300&dpr=1&fit=crop',
 };
 
 export const LOCATION_COORDINATES: { [key in Location]: { lat: number; lon: number } } = {
@@ -47,7 +47,7 @@ export const HERO_IMAGES: { [key in Location]: string } = {
     [Location.THIKA]: 'https://images.pexels.com/photos/1388056/pexels-photo-1388056.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
     [Location.KIAMBU]: 'https://images.pexels.com/photos/931007/pexels-photo-931007.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1&fit=crop',
     [Location.NYERI]: 'https://images.pexels.com/photos/210307/pexels-photo-210307.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1',
-    [Location.MERU]: 'https://images.pexels.com/photos/773453/pexels-photo-773453.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1&fit=crop',
+    [Location.MERU]: 'https://images.pexels.com/photos/11194514/pexels-photo-11194514.jpeg?auto=compress&cs=tinysrgb&w=1600&h=800&dpr=1&fit=crop',
 };
 
 
