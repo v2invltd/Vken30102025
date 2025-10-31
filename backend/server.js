@@ -166,8 +166,6 @@ async function sendPushNotification(userId, payload) {
 const apiRouter = express.Router();
 
 // --- API Routes ---
-// All API logic is now attached to `apiRouter`. The '/api' prefix is handled when mounting the router.
-
 apiRouter.get('/', (req, res) => res.json({ message: 'Welcome to the V-Ken Serve API!' }));
 
 apiRouter.get('/local-hub/:location', async (req, res) => {
@@ -503,27 +501,31 @@ apiRouter.put('/notifications/mark-read', authenticateToken, (req, res) => prism
 
 // --- Mount Router and Define Fallbacks ---
 
-// Mount the API router at /api
+// 1. API Routes: Handle all requests that start with /api
 app.use('/api', apiRouter);
 
-// API 404 Handler - This MUST be after the API router
-app.use('/api', (req, res, next) => {
-    console.warn(`404 - API Route Not Found: ${req.method} ${req.originalUrl}`);
+// 2. API 404 Handler: Catches any /api request that didn't match.
+app.use('/api/*', (req, res) => {
     res.status(404).json({ message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
-// Serve static assets from the root directory of the project.
+// 3. Static Assets: Serve the frontend files from the project root.
 const frontendPath = path.resolve(__dirname, '..');
 app.use(express.static(frontendPath));
 
-// For all other GET requests that aren't for files, send the SPA's index.html
+// 4. SPA Fallback: For any other GET request, send the index.html file.
 app.get('*', (req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
         if (err) {
             console.error("Error sending SPA fallback file:", err);
-            res.status(500).send(err);
+            res.status(500).send("Error serving the application.");
         }
     });
+});
+
+// 5. Final Global Error Handler for anything else.
+app.use((req, res, next) => {
+    res.status(404).send(`Cannot ${req.method} ${req.path}`);
 });
 
 
