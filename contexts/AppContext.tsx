@@ -31,6 +31,7 @@ export interface ModalState {
       | 'disclaimer'
       | 'invoice'
       | 'locationSelector'
+      | 'verificationOtp'
       | 'forgotPassword'; // Added for the new modal
     props?: any;
 }

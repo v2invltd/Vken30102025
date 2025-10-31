@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { ServiceProvider } from '../types';
 import ServiceCard from './ServiceCard';
@@ -10,6 +9,14 @@ import * as api from '../frontend/services/api';
 
 type ViewMode = 'list' | 'map';
 type SortByType = 'relevance' | 'distance' | 'rating';
+
+const isProviderAvailableNow = (provider: ServiceProvider): boolean => {
+    if (!provider.allowsInstantBooking) return false;
+    const today = new Date();
+    const todayString = today.toISOString().split('T')[0]; // 'YYYY-MM-DD'
+    const availabilityStatus = provider.availability?.[todayString];
+    return availabilityStatus !== 'booked' && availabilityStatus !== 'unavailable';
+};
 
 const GroundingSources: React.FC<{ sources: any[] }> = ({ sources }) => {
     const mapSources = sources.filter(s => s.maps);
@@ -51,13 +58,16 @@ const getDistance = (coords1: { lat: number; lon: number }, coords2: { lat: numb
 
 const SearchResults: React.FC = () => {
   const { state, dispatch } = useAppContext();
-  const { searchResults: providers, favoriteProviderIds, activeSearchCategory, searchGroundingSources, isSearchResultsLoading: isLoading, userCoordinates } = state;
+  const { searchResults: providers, favoriteProviderIds, activeSearchCategory, searchGroundingSources, isSearchResultsLoading: isLoading, userCoordinates, selectedLocation } = state;
+
+  const isNearbySearch = activeSearchCategory === null && providers.length > 0 && !!selectedLocation;
 
   const [nameFilter, setNameFilter] = useState('');
   const [ratingFilter, setRatingFilter] = useState<number>(0);
   const [instantBookFilter, setInstantBookFilter] = useState<boolean>(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [sortBy, setSortBy] = useState<SortByType>('relevance');
+  const [availableNowFilter, setAvailableNowFilter] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(isNearbySearch ? 'map' : 'list');
+  const [sortBy, setSortBy] = useState<SortByType>(isNearbySearch ? 'distance' : 'relevance');
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
@@ -104,12 +114,15 @@ const SearchResults: React.FC = () => {
   };
 
   const sortedAndFilteredProviders = useMemo(() => {
-    const providersWithDistance = providers.map(provider => ({
-        ...provider,
-        distance: userCoordinates && provider.coordinates
-            ? getDistance(userCoordinates, provider.coordinates)
-            : undefined,
-    }));
+    // Providers in searchResults for "nearby search" already have distance calculated from App.tsx
+    const providersWithDistance = providers.some(p => p.hasOwnProperty('distance'))
+      ? providers
+      : providers.map(provider => ({
+          ...provider,
+          distance: userCoordinates && provider.coordinates
+              ? getDistance(userCoordinates, provider.coordinates)
+              : undefined,
+      }));
 
     let filtered = providersWithDistance.filter(p => {
         const nameMatch = nameFilter ? (
@@ -119,7 +132,8 @@ const SearchResults: React.FC = () => {
         ) : true;
         const ratingMatch = ratingFilter > 0 ? p.rating >= ratingFilter : true;
         const instantBookMatch = instantBookFilter ? p.allowsInstantBooking === true : true;
-        return nameMatch && ratingMatch && instantBookMatch;
+        const availableNowMatch = availableNowFilter ? isProviderAvailableNow(p) : true;
+        return nameMatch && ratingMatch && instantBookMatch && availableNowMatch;
     });
 
     if (sortBy === 'distance' && userCoordinates) {
@@ -130,21 +144,24 @@ const SearchResults: React.FC = () => {
         return filtered.sort((a, b) => b.rating - a.rating);
     }
 
-    return filtered; // Default 'relevance' order
-  }, [providers, nameFilter, ratingFilter, instantBookFilter, sortBy, userCoordinates]);
+    return filtered; // Default 'relevance' order or initial distance sort for nearby
+  }, [providers, nameFilter, ratingFilter, instantBookFilter, availableNowFilter, sortBy, userCoordinates]);
+  
+  const title = activeSearchCategory ? `Providers for ${activeSearchCategory}` : `Providers Near ${selectedLocation}`;
+
 
   return (
     <div className="container mx-auto px-6 py-8">
       <div className="text-center mb-4">
           <h2 className="text-3xl font-bold text-gray-800 mb-4">
-            {activeSearchCategory ? `Providers for ${activeSearchCategory}` : 'Available Service Providers'}
+            {title}
           </h2>
       </div>
       
       {/* Filter and View Toggle */}
       {!isLoading && (providers.length > 0 || nameFilter) && (
         <div className="space-y-4 mb-8 p-4 bg-gray-50 rounded-lg border">
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="lg:col-span-2">
                     <input 
                         type="text"
@@ -167,17 +184,31 @@ const SearchResults: React.FC = () => {
                         <option value={2}>2 Stars & Up</option>
                     </select>
                 </div>
-                <div className="flex items-center justify-center bg-white px-4 py-2 border border-gray-300 rounded-lg shadow-sm">
-                    <label htmlFor="instantBook" className="flex items-center cursor-pointer text-sm font-medium text-gray-700">
-                        <input
-                            type="checkbox"
-                            id="instantBook"
-                            checked={instantBookFilter}
-                            onChange={(e) => setInstantBookFilter(e.target.checked)}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary mr-2"
-                        />
-                        Instant Book Only
-                    </label>
+                 <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center justify-center bg-white px-3 py-2 border border-gray-300 rounded-lg shadow-sm">
+                        <label htmlFor="instantBook" className="flex items-center cursor-pointer text-sm font-medium text-gray-700">
+                            <input
+                                type="checkbox"
+                                id="instantBook"
+                                checked={instantBookFilter}
+                                onChange={(e) => setInstantBookFilter(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary mr-2"
+                            />
+                            Instant
+                        </label>
+                    </div>
+                     <div className="flex items-center justify-center bg-white px-3 py-2 border border-gray-300 rounded-lg shadow-sm">
+                        <label htmlFor="availableNow" className="flex items-center cursor-pointer text-sm font-medium text-gray-700">
+                            <input
+                                type="checkbox"
+                                id="availableNow"
+                                checked={availableNowFilter}
+                                onChange={(e) => setAvailableNowFilter(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary mr-2"
+                            />
+                            Now
+                        </label>
+                    </div>
                 </div>
             </div>
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t">
@@ -246,13 +277,14 @@ const SearchResults: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-fade-in">
                 {sortedAndFilteredProviders.map((provider) => (
                     <ServiceCard 
-                    key={provider.id} 
-                    provider={provider} 
-                    onBook={onBook}
-                    isFavorite={favoriteProviderIds.includes(provider.id)}
-                    onToggleFavorite={onToggleFavorite}
-                    onViewDetails={onViewDetails}
-                    distance={provider.distance}
+                        key={provider.id} 
+                        provider={provider} 
+                        onBook={onBook}
+                        isFavorite={favoriteProviderIds.includes(provider.id)}
+                        onToggleFavorite={onToggleFavorite}
+                        onViewDetails={onViewDetails}
+                        distance={provider.distance}
+                        isImmediatelyAvailable={isProviderAvailableNow(provider)}
                     />
                 ))}
                 </div>

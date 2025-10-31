@@ -10,9 +10,10 @@ interface ServiceCardProps {
   onToggleFavorite: (providerId: string) => void;
   onViewDetails: (provider: ServiceProvider) => void;
   distance?: number;
+  isImmediatelyAvailable?: boolean;
 }
 
-const ServiceCard: React.FC<ServiceCardProps> = ({ provider, onBook, isFavorite, onToggleFavorite, onViewDetails, distance }) => {
+const ServiceCard: React.FC<ServiceCardProps> = ({ provider, onBook, isFavorite, onToggleFavorite, onViewDetails, distance, isImmediatelyAvailable }) => {
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click when favoriting
@@ -29,6 +30,16 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ provider, onBook, isFavorite,
       <div className="relative">
         <img className="w-full h-40 object-cover" src={provider.coverImageUrl || 'https://images.unsplash.com/photo-1517048676732-d65bc937f952?q=80&w=400&h=300&fit=crop'} alt={`${provider.name} cover`} />
         
+        {isImmediatelyAvailable && (
+          <div className="absolute top-2 left-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1.5 shadow-md">
+             <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-300 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
+             </span>
+             Available Now
+          </div>
+        )}
+
         <button 
           onClick={handleFavoriteClick}
           className="absolute top-2 right-2 bg-white bg-opacity-70 rounded-full p-2 hover:bg-opacity-100 transition-colors z-10"

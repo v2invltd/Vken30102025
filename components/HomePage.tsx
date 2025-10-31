@@ -181,7 +181,7 @@ const HomePage: React.FC<HomePageProps> = ({
 
   return (
     <>
-      <HeroSection onFindServicesClick={onFindServicesClick} onFindNearMeClick={onFindNearMeClick} selectedLocation={selectedLocation} />
+      <HeroSection onFindServicesClick={onFindServicesClick} onFindNearMeClick={onFindNearMeClick} selectedLocation={selectedLocation} userCoordinates={userCoordinates} />
       
       <div className="bg-white -mt-8 relative z-10 rounded-t-2xl shadow-lg">
         <CurrentLocationIndicator coordinates={userCoordinates} />

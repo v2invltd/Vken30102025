@@ -99,10 +99,10 @@ export async function forgotPassword(email: string): Promise<{ message: string }
 
 // New function to simulate sending a WhatsApp OTP
 export async function sendWhatsappOtp(phone: string): Promise<{ message: string }> {
-    return fetchData('/auth/send-whatsapp-otp', {
-        method: 'POST',
-        body: JSON.stringify({ phone }),
-    });
+    console.log(`Simulating sending OTP to WhatsApp for ${phone}`);
+    // In a real app, this would trigger a backend endpoint that uses an OTP service like Twilio.
+    // For this demo, we just return a success message immediately.
+    return new Promise(resolve => setTimeout(() => resolve({ message: `OTP sent to ${phone}` }), 1000));
 }
 
 export async function fetchCurrentUser(): Promise<User> {

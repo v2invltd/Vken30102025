@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Location, ServiceCategory, ServiceProvider, User, UserRole, Booking, Review, Message, QuotationItem, DetailedService, Notification, JobAlert, LegalDocType, NewProviderData } from './types';
 import * as api from './frontend/services/api'; // Import all API functions
 import { useAppContext, AppView } from './contexts/AppContext';
-import { LOCATIONS } from './constants'; // Import for initial provider generation
+import { LOCATIONS, LOCATION_COORDINATES } from './constants'; // Import for initial provider generation and "Near Me"
 
 // Components
 import BackToTopButton from './components/BackToTopButton';
@@ -37,6 +36,7 @@ const DisclaimerModal = lazy(() => import('./components/DisclaimerModal'));
 const InvoiceModal = lazy(() => import('./components/InvoiceModal'));
 const ForgotPasswordModal = lazy(() => import('./components/ForgotPasswordModal'));
 const LocalHub = lazy(() => import('./components/LocalHub'));
+const VerificationOtpModal = lazy(() => import('./components/VerificationOtpModal'));
 
 
 const ChatbotButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
@@ -76,6 +76,8 @@ const App: React.FC = () => {
 
   const [isAiSearchLoading, setIsAiSearchLoading] = useState(false);
   const [aiSearchError, setAiSearchError] = useState<string | null>(null);
+  const [pendingRegistration, setPendingRegistration] = useState<Omit<User, 'id' | 'kycVerified'> | null>(null);
+
 
   const toast = useToast();
 
@@ -256,6 +258,44 @@ const App: React.FC = () => {
     }
   };
 
+  const handleFindNearMeClick = useCallback(() => {
+    if (!currentUser) {
+        dispatch({ type: 'SET_POST_LOGIN_ACTION', payload: handleFindNearMeClick });
+        dispatch({ type: 'OPEN_MODAL', payload: { type: 'auth', props: { promptMessage: 'Please log in to find services near you.' } } });
+        return;
+    }
+    if (!selectedLocation) {
+        toast.info('Please select a city to find nearby services.');
+        return;
+    }
+
+    const cityCoords = LOCATION_COORDINATES[selectedLocation];
+    if (!cityCoords) {
+        toast.error(`Could not find coordinates for ${selectedLocation}.`);
+        return;
+    }
+
+    const NEARBY_RADIUS_KM = 25;
+
+    const nearbyProviders = providers
+        .filter(p => p.coordinates)
+        .map(p => ({
+            ...p,
+            distance: getDistance(cityCoords, p.coordinates!),
+        }))
+        .filter(p => p.distance <= NEARBY_RADIUS_KM);
+
+    if (nearbyProviders.length === 0) {
+        toast.info(`No providers found within ${NEARBY_RADIUS_KM}km of ${selectedLocation}.`);
+    }
+
+    dispatch({ type: 'SET_SEARCH_RESULTS', payload: nearbyProviders.sort((a,b) => a.distance - b.distance) });
+    dispatch({ type: 'SET_ACTIVE_SEARCH_CATEGORY', payload: null });
+    dispatch({ type: 'SET_VIEW', payload: AppView.SEARCH });
+
+  }, [currentUser, selectedLocation, providers, dispatch, toast]);
+
+
     const onShowTerms = (type: LegalDocType) => {
       let title = '';
       let content = '';
@@ -331,6 +371,35 @@ const App: React.FC = () => {
       }
   }, [dispatch, state.postLoginAction, toast]);
   
+    const handleVerificationNeeded = useCallback(async (userData: Omit<User, 'id' | 'kycVerified'>) => {
+        try {
+            await api.sendWhatsappOtp(userData.phone!);
+            setPendingRegistration(userData);
+            dispatch({ type: 'CLOSE_MODAL' });
+            dispatch({ type: 'OPEN_MODAL', payload: { type: 'verificationOtp', props: { verificationType: 'WhatsApp', identifier: userData.phone } } });
+        } catch (error: any) {
+            toast.error(error.message || "Failed to send OTP. Please check the phone number.");
+        }
+    }, [dispatch, toast]);
+
+    const handleOtpVerified = useCallback(async () => {
+        if (!pendingRegistration) {
+            toast.error("Registration data lost. Please try again.");
+            return;
+        }
+        try {
+            const { user, token } = await api.registerUser(pendingRegistration);
+            onAuthSuccess(user, true, token);
+            toast.success("Registration successful! Welcome aboard.");
+        } catch (error: any) {
+            toast.error(error.message || "Registration failed.");
+            // Re-open auth modal on failure
+            dispatch({ type: 'OPEN_MODAL', payload: { type: 'auth' } });
+        } finally {
+            setPendingRegistration(null);
+        }
+    }, [pendingRegistration, onAuthSuccess, toast, dispatch]);
+
   const onProviderRegister = useCallback((user: { name: string, email: string, phone: string }) => {
       dispatch({ type: 'CLOSE_MODAL' });
       dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerRegistration', props: { pendingUser: user } } });
@@ -485,24 +554,25 @@ const App: React.FC = () => {
       case AppView.SEARCH:
         return <SearchResults />;
       case AppView.MY_BOOKINGS:
-        return currentUser ? <MyBookingsPage bookings={bookings} currentUser={currentUser} onLeaveReview={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'review', props: { booking: b } }})} onOpenChat={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking: b } }})} onViewQuotation={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking: b, mode: 'view' } }})} onConfirmAndPay={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'booking', props: { provider: b.provider, booking: b, type: 'instant' } }})} onPayInvoice={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'invoice', props: { booking: b } }})} onCancelBooking={(b) => dispatch({type: 'OPEN_MODAL', payload: { type: 'confirmation', props: { title: 'Cancel Booking', message: 'Are you sure you want to cancel this booking?', onConfirm: () => handleUpdateBookingStatus(b, 'cancel') } }})} /> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
+        return currentUser ? <MyBookingsPage bookings={bookings} currentUser={currentUser} onLeaveReview={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'review', props: { booking: b } }})} onOpenChat={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking: b } }})} onViewQuotation={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking: b, mode: 'view' } }})} onConfirmAndPay={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'booking', props: { provider: b.provider, booking: b, type: 'instant' } }})} onPayInvoice={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'invoice', props: { booking: b } }})} onCancelBooking={(b) => dispatch({type: 'OPEN_MODAL', payload: { type: 'confirmation', props: { title: 'Cancel Booking', message: 'Are you sure you want to cancel this booking?', onConfirm: () => handleUpdateBookingStatus(b, 'cancel') } }})} /> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={handleFindNearMeClick} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
       case AppView.PROFILE:
-        return currentUser ? <ProfilePage /> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
+        return currentUser ? <ProfilePage /> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={handleFindNearMeClick} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
       case AppView.PROVIDER_DASHBOARD:
         const providerProfile = providers.find(p => p.ownerId === currentUser?.id);
-        return currentUser && currentUser.role === UserRole.PROVIDER ? <ProviderDashboard user={currentUser} provider={providerProfile || null} bookings={bookings} onUpdateBookingStatus={(b, resp) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking: b, response: resp } }})} onOpenChat={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking: b } }})} onOpenQuotation={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking: b, mode: 'edit' } }})} onCompleteJob={handleCompleteJob} onCancelBooking={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking: b, response: 'cancel' } }})}/> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
+        return currentUser && currentUser.role === UserRole.PROVIDER ? <ProviderDashboard user={currentUser} provider={providerProfile || null} bookings={bookings} onUpdateBookingStatus={(b, resp) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking: b, response: resp } }})} onOpenChat={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'chat', props: { booking: b } }})} onOpenQuotation={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'quotation', props: { booking: b, mode: 'edit' } }})} onCompleteJob={handleCompleteJob} onCancelBooking={(b) => dispatch({ type: 'OPEN_MODAL', payload: { type: 'providerAcceptance', props: { booking: b, response: 'cancel' } }})}/> : <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={handleFindNearMeClick} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
       case AppView.LOCAL_HUB:
         return <LocalHub />;
       case AppView.HOME:
       default:
-        return <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={() => {}} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
+        return <HomePage onFindServicesClick={() => dispatch({ type: 'OPEN_MODAL', payload: { type: 'aiAssistant' } })} onFindNearMeClick={handleFindNearMeClick} onSelectCategory={onSelectCategory} onSelectLocation={(loc) => dispatch({ type: 'SET_LOCATION', payload: loc })} selectedLocation={selectedLocation} featuredProviders={featuredProviders} onBookProvider={onBookProvider} onViewProviderDetails={onViewProviderDetails} isProviderFavorite={isProviderFavorite} onToggleFavoriteProvider={onToggleFavoriteProvider} userCoordinates={userCoordinates}/>;
     }
   };
 
   const renderModal = () => {
     if (!modal) return null;
     switch (modal.type) {
-        case 'auth': return <AuthModal onAuthSuccess={onAuthSuccess} onProviderRegister={onProviderRegister} onShowTerms={onShowTerms} {...modal.props} />;
+        case 'auth': return <AuthModal onLoginSuccess={onAuthSuccess} onVerificationNeeded={handleVerificationNeeded} onShowTerms={onShowTerms} {...modal.props} />;
+        case 'verificationOtp': return <VerificationOtpModal onVerified={handleOtpVerified} {...modal.props} />;
         case 'aiAssistant': return <AiAssistant onSearch={handleAiSearch} isLoading={isAiSearchLoading} error={aiSearchError} />;
         case 'locationSelector': return <LocationSelectorModal onSelectLocation={(loc) => { dispatch({ type: 'SET_LOCATION', payload: loc }); dispatch({ type: 'CLOSE_MODAL' }); }} />;
         case 'providerDetail': return <ProviderDetailModal onBook={onBookProvider} {...modal.props} />;

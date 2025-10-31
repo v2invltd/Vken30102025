@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import { SparklesIcon, LocationIcon } from './IconComponents';
 import { Location } from '../types';
@@ -9,9 +7,10 @@ interface HeroSectionProps {
   onFindServicesClick: () => void;
   onFindNearMeClick: () => void;
   selectedLocation: Location | null;
+  userCoordinates: { lat: number; lon: number } | null;
 }
 
-const HeroSection: React.FC<HeroSectionProps> = ({ onFindServicesClick, onFindNearMeClick, selectedLocation }) => {
+const HeroSection: React.FC<HeroSectionProps> = ({ onFindServicesClick, onFindNearMeClick, selectedLocation, userCoordinates }) => {
   const heroImage = selectedLocation ? HERO_IMAGES[selectedLocation] : HERO_IMAGES[Location.NAIROBI];
   const locationName = selectedLocation || 'Kenya';
 
@@ -36,7 +35,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onFindServicesClick, onFindNe
             <button
               onClick={onFindNearMeClick}
               disabled={!selectedLocation}
-              title={!selectedLocation ? "Please select a city to enable this feature." : "Find services using your device's location"}
+              title={!selectedLocation ? "Please select a city to find nearby services." : `Find services near ${selectedLocation}`}
               className="bg-white text-primary font-bold py-4 px-8 rounded-lg text-lg transition-transform transform hover:scale-105 inline-flex items-center space-x-2 border-2 border-primary disabled:bg-gray-300 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-500 hover:disabled:scale-100"
             >
               <LocationIcon className="w-6 h-6" />

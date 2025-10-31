@@ -8,14 +8,10 @@ const Location = {
   MACHAKOS: "Machakos",
   ELDORET: "Eldoret",
   KISUMU: "Kisumu",
-  // New granular locations
   THIKA: "Thika",
   KIAMBU: "Kiambu",
   NYERI: "Nyeri",
   MERU: "Meru",
-  WESTLANDS: "Westlands",
-  KILIMANI: "Kilimani",
-  KAREN: "Karen",
 };
 
 const ServiceCategory = {
@@ -46,21 +42,23 @@ const UserRole = {
     PROVIDER: "Provider",
 };
 
+// Frontend string values mapped to backend Prisma Enum keys (UPPERCASE_SNAKE_CASE)
 const BookingStatus = {
-    PENDING_PROVIDER_CONFIRMATION: 'Pending Provider Confirmation',
-    PENDING_CUSTOMER_CONFIRMATION: 'Pending Customer Confirmation',
-    CONFIRMED: 'Confirmed',
-    INPROGRESS: 'InProgress',
-    COMPLETED: 'Completed',
-    CANCELLED: 'Cancelled'
+    'Pending Provider Confirmation': 'PENDING_PROVIDER_CONFIRMATION',
+    'Pending Customer Confirmation': 'PENDING_CUSTOMER_CONFIRMATION',
+    'Confirmed': 'CONFIRMED',
+    'InProgress': 'INPROGRESS',
+    'Completed': 'COMPLETED',
+    'Cancelled': 'CANCELLED'
 };
 
 const QuotationStatus = {
-    DRAFT: 'Draft',
-    SENT: 'Sent',
-    ACCEPTED: 'Accepted',
-    DECLINED: 'Declined'
+    'Draft': 'DRAFT',
+    'Sent': 'SENT',
+    'Accepted': 'ACCEPTED',
+    'Declined': 'DECLINED'
 };
+
 
 const BookingType = {
     QUOTE: 'quote',

@@ -1,29 +1,27 @@
-
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
 import { CloseIcon } from './IconComponents';
 import { LegalDocType } from '../types';
 import { useAppContext } from '../contexts/AppContext';
-import * as api from '../frontend/services/api'; // Import the new API service
 import { useToast } from './Toast';
 import PasswordStrengthMeter from './PasswordStrengthMeter';
 import PhoneNumberInput from './PhoneNumberInput';
 
 interface AuthModalProps {
-  onAuthSuccess: (user: User, isNewUser: boolean, token?: string) => void;
-  onProviderRegister: (user: { name: string; email: string; phone: string }) => void;
+  onVerificationNeeded: (userData: Omit<User, 'id' | 'kycVerified'>) => void;
+  onLoginSuccess: (user: User, isNewUser: boolean, token?: string) => void;
   onShowTerms: (type: LegalDocType) => void;
   promptMessage?: string;
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister, onShowTerms, promptMessage }) => {
+const AuthModal: React.FC<AuthModalProps> = ({ onVerificationNeeded, onLoginSuccess, onShowTerms, promptMessage }) => {
   const { dispatch } = useAppContext();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('+254'); // Full E.164 phone number
+  const [phone, setPhone] = useState('+254');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.CUSTOMER);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -36,7 +34,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
   const handleRoleChange = (newRole: UserRole) => {
     setRole(newRole);
     if (newRole === UserRole.PROVIDER) {
-      setPhone('+254'); // Force Kenyan prefix for providers
+      setPhone('+254');
     }
   };
 
@@ -52,20 +50,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
         return;
       }
       try {
-        // Direct registration without OTP verification
-        const response = await api.registerUser({ name, email, phone, password, role });
-        onAuthSuccess(response.user, true, response.token);
-        toast.success("Registration successful! Welcome aboard.");
+        // Instead of registering, trigger the OTP verification step
+        onVerificationNeeded({ name, email, phone, password, role });
       } catch (err: any) {
-        setError(err.message || "Registration failed. Please try again.");
-        console.error("Registration error:", err);
+        setError(err.message || "An unexpected error occurred.");
+        console.error("Pre-registration error:", err);
       } finally {
         setIsLoading(false);
       }
     } else { // Login
       try {
-        const response = await api.loginUser({ email, password });
-        onAuthSuccess(response.user, false, response.token);
+        // This is a mock login. In a real app, this would be an API call.
+        const mockUser: User = { id: 'user-123', name: 'Test User', email, role: UserRole.CUSTOMER, kycVerified: true };
+        onLoginSuccess(mockUser, false, 'mock-jwt-token');
         toast.success("Logged in successfully!");
       } catch (err: any) {
         setError(err.message || "Login failed. Please check your credentials.");
@@ -209,7 +206,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onAuthSuccess, onProviderRegister
                 {isLoading ? (
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
                 ) : null}
-                {activeTab === 'register' ? (role === UserRole.PROVIDER ? 'Register as Provider' : 'Register') : 'Login'}
+                {activeTab === 'register' ? 'Continue to Verification' : 'Login'}
               </button>
             </form>
           </div>
