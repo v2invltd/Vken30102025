@@ -8,25 +8,58 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Helper to robustly parse JSON from AI responses that might include markdown backticks or other text.
+// Helper to robustly parse JSON from AI responses that might include markdown, leading/trailing text, etc.
 function robustJsonParse(text) {
-    let jsonString = text.trim();
-
-    // Handle markdown code blocks, which Gemini often returns, using a regex
-    const match = jsonString.match(/```(json)?\s*([\s\S]+?)\s*```/);
-    if (match && match[2]) {
-        jsonString = match[2];
+    // This new function is much more robust. It finds the first "{" or "["
+    // and then properly scans for the matching closing character, ignoring any
+    // other text or brackets outside of this main JSON structure.
+    const jsonStartMatch = text.match(/(\[|\{)/);
+    if (!jsonStartMatch) {
+        // Fallback for simple values like "true", "null", or string literals.
+        try {
+            return JSON.parse(text.trim());
+        } catch (e) {
+            console.error("Could not parse as simple JSON value:", text.trim());
+            throw new Error("AI response did not contain a valid JSON structure.");
+        }
     }
+
+    const startIndex = jsonStartMatch.index;
+    const openChar = jsonStartMatch[0];
+    const closeChar = openChar === '{' ? '}' : ']';
+    
+    let depth = 0;
+    let endIndex = -1;
+
+    // Iterate through the string to find the matching closing character.
+    for (let i = startIndex; i < text.length; i++) {
+        if (text[i] === openChar) {
+            depth++;
+        } else if (text[i] === closeChar) {
+            depth--;
+        }
+
+        if (depth === 0) {
+            endIndex = i;
+            break;
+        }
+    }
+
+    if (endIndex === -1) {
+        throw new Error("AI response had an unbalanced JSON structure.");
+    }
+
+    const jsonString = text.substring(startIndex, endIndex + 1);
 
     try {
         return JSON.parse(jsonString);
     } catch (e) {
-        console.error("JSON Parsing Error:", e.message);
+        console.error("Final JSON Parsing Error:", e.message);
         console.error("--- Original AI Text ---");
         console.error(text);
-        console.error("--- String Attempted to Parse ---");
+        console.error("--- Extracted String Attempted to Parse ---");
         console.error(jsonString);
-        throw new Error("AI returned a response that could not be parsed as JSON.");
+        throw new Error("AI returned a response that could not be parsed as JSON, even after extraction.");
     }
 }
 

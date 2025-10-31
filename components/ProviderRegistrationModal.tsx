@@ -102,7 +102,7 @@ const ProviderRegistrationModal: React.FC<ProviderRegistrationModalProps> = ({ o
     const toast = useToast();
     const [step, setStep] = useState(1);
     const [data, setData] = useState<Partial<NewProviderData & ServiceProvider>>({
-        businessName: '', businessRegNo: '', kraPin: '', category: undefined,
+        businessName: '', businessRegNo: '', category: undefined,
         locations: [], hourlyRate: 0, description: '', expertise: [],
         logoUrl: '', coverImageUrl: '', detailedServices: [],
         latitude: 0, longitude: 0, // Default coordinates for AI generation purposes
