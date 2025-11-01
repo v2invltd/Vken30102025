@@ -1,3 +1,5 @@
+
+
 import { ServiceCategory, Location, QuotationItem, Booking, ServiceProvider, DetailedService, User, Notification, Message, ParsedServiceRequest, JobAlert } from "../../types";
 // The original `frontend/services/geminiService.ts` file should now be empty or removed as all AI logic is proxied through the backend.
 
@@ -126,7 +128,8 @@ export async function searchProviders(category: ServiceCategory, location: Locat
     return fetchData(`/providers/search?category=${category}&location=${location}`);
 }
 
-export async function createProvider(providerData: Omit<ServiceProvider, 'id' | 'owner' | 'ownerId' | 'rating' | 'reviewsCount' | 'reviewsList' | 'gallery' | 'availability' | 'kycVerified'> & { ownerId?: string, kraPin: string }): Promise<{ message: string; provider: ServiceProvider }> {
+// FIX: Updated the type for `createProvider` to expect `businessName` instead of `name`, aligning it with the backend API and fixing the type error in App.tsx.
+export async function createProvider(providerData: Omit<ServiceProvider, 'name' | 'id' | 'owner' | 'ownerId' | 'rating' | 'reviewsCount' | 'reviewsList' | 'gallery' | 'availability' | 'kycVerified'> & { businessName: string, ownerId?: string, kraPin: string }): Promise<{ message: string; provider: ServiceProvider }> {
     return fetchData('/providers', {
         method: 'POST',
         body: JSON.stringify(providerData),
@@ -157,6 +160,13 @@ export async function updateBooking(bookingId: string, updates: Partial<Booking>
     return fetchData(`/bookings/${bookingId}`, {
         method: 'PUT',
         body: JSON.stringify(updates),
+    });
+}
+
+export async function sendMessage(bookingId: string, text: string): Promise<{ booking: Booking }> {
+    return fetchData(`/bookings/${bookingId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
     });
 }
 
@@ -204,10 +214,14 @@ export async function deleteJobAlert(alertId: string): Promise<{ message: string
 }
 
 // --- AI Service API ---
-export async function parseServiceRequest(query: string, coordinates: { lat: number; lon: number } | null): Promise<ParsedServiceRequest> {
+export async function parseServiceRequest(
+    query: string,
+    coordinates: { lat: number; lon: number } | null,
+    image?: string | null // Add optional image parameter
+): Promise<ParsedServiceRequest> {
     return fetchData('/ai/parse-service-request', {
         method: 'POST',
-        body: JSON.stringify({ query, coordinates }),
+        body: JSON.stringify({ query, coordinates, image }), // Pass image to backend
     });
 }
 
@@ -265,10 +279,10 @@ export async function generateQuotationItems(provider: ServiceProvider, requestD
 }
 
 // --- Chatbot API ---
-export async function initChatbotSession(userId: string, initialMessage?: string): Promise<{ sessionId: string }> {
+export async function initChatbotSession(userId: string): Promise<{ sessionId: string }> {
     return fetchData('/ai/chatbot/init', {
         method: 'POST',
-        body: JSON.stringify({ userId, initialMessage }),
+        body: JSON.stringify({ userId }),
     });
 }
 

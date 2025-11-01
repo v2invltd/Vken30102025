@@ -92,7 +92,10 @@ export interface ServiceProvider {
   // New fields for blacklisting policy
   isBlacklisted?: boolean;
   blacklistEndDate?: Date | string | null;
-  rejectionHistory?: any[];
+  // FIX: Updated rejectionHistory to have a specific type for better safety.
+  rejectionHistory?: { bookingId: string; date: string }[];
+  // FIX: Added optional distance property for search results
+  distance?: number;
 }
 
 export enum UserRole {
@@ -190,6 +193,15 @@ export interface ParsedServiceRequest {
   location: Location | null;
   error?: string;
   groundingChunks?: any[];
+}
+
+// FIX: Added a specific type for the registration data payload to fix type error in AuthModal
+export interface PendingRegistrationData {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  role: UserRole;
 }
 
 export type LegalDocType = 'customer' | 'provider' | 'privacy';

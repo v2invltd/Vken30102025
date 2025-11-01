@@ -32,7 +32,7 @@ const ChatbotModal: React.FC<ChatbotModalProps> = ({ initialMessage, userId }) =
     let isMounted = true;
     const initializeChatSession = async () => {
       try {
-        const response = await api.initChatbotSession(userId, initialMessage);
+        const response = await api.initChatbotSession(userId);
         if (isMounted) {
             setSessionId(response.sessionId);
             const firstMessage = initialMessage || 'Hello! How can I help you today? Feel free to ask me anything about our services.';
@@ -87,7 +87,7 @@ const ChatbotModal: React.FC<ChatbotModalProps> = ({ initialMessage, userId }) =
         const lines = chunk.split('\n');
         for (const line of lines) {
             if (line.startsWith('data: ')) {
-                const jsonStr = line.substring(5);
+                const jsonStr = line.substring(6);
                 try {
                     const parsedChunk = JSON.parse(jsonStr);
                     if (parsedChunk.error) {

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { CloseIcon } from './IconComponents';
 import { useAppContext } from '../contexts/AppContext';
@@ -5,7 +6,7 @@ import { useAppContext } from '../contexts/AppContext';
 interface VerificationOtpModalProps {
   verificationType: 'WhatsApp';
   identifier: string;
-  onVerified: () => void;
+  onVerified: () => Promise<void>;
 }
 
 const VerificationOtpModal: React.FC<VerificationOtpModalProps> = ({ verificationType, identifier, onVerified }) => {
@@ -32,14 +33,21 @@ const VerificationOtpModal: React.FC<VerificationOtpModalProps> = ({ verificatio
     setError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
     if (otp.trim() === correctOtp) {
       setError('');
       setIsLoading(true);
-      onVerified();
+      try {
+        await onVerified();
+        // On success, the parent component closes the modal, so we don't need to do anything here.
+      } catch (error: any) {
+        // If onVerified throws an error, catch it, display it, and reset the loading state.
+        setError(error.message || 'Registration failed. Please check your details and try again.');
+        setIsLoading(false);
+      }
     } else {
       setError('Invalid OTP. Please try again.');
     }

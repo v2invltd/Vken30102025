@@ -1,3 +1,4 @@
+
 const { GoogleGenAI, Type } = require('@google/genai');
 const { SERVICE_CATEGORIES, LOCATIONS } = require('./constants');
 
@@ -67,7 +68,7 @@ function robustJsonParse(text) {
 // --- Chatbot Session Management ---
 const chatSessions = new Map(); // Stores active Chat objects by sessionId
 
-function initChatSession(userId, initialMessage) {
+function initChatSession(userId) {
     const sessionId = `chat-${userId}-${Date.now()}`;
     const chat = ai.chats.create({
         model: 'gemini-2.5-flash',
@@ -376,7 +377,7 @@ async function verifyProviderImage(imageFile, imageType) {
   }
 }
 
-async function parseServiceRequest(query, coordinates) {
+async function parseServiceRequest(query, coordinates, image) {
   const model = "gemini-2.5-flash";
 
   let locationHint = '';
@@ -391,4 +392,280 @@ async function parseServiceRequest(query, coordinates) {
   }
 
   const prompt = `
-    Analyze the user's query and call the find
+    Analyze the user's query and the provided image (if any) and call the findServices function to extract the service category and location. The user is in Kenya. ${locationHint}
+    If the image shows a problem (e.g., a broken pipe, a dirty room, a wall that needs painting), use it as the primary clue for the service category. Use the text query for additional context or location.
+    If the text and image seem to conflict, prioritize the image for the service category.
+  `;
+  
+  // Prepare content for Gemini API
+  const contents = {
+    parts: [{ text: prompt }]
+  };
+  
+  if (image) {
+    // Image is a data URL: "data:image/jpeg;base64,..."
+    // We need to extract the mimeType and base64 data
+    const match = image.match(/^data:(image\/.+);base64,(.+)$/);
+    if (!match) {
+        throw new Error("Invalid image data URL format provided.");
+    }
+    const mimeType = match[1];
+    const data = match[2];
+    
+    contents.parts.push({
+      inlineData: {
+        mimeType: mimeType,
+        data: data
+      }
+    });
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents, // Use the new multi-part contents
+      config: {
+        tools: [{ functionDeclarations: [findServicesFunctionDeclaration] }],
+      },
+    });
+
+    if (response.functionCalls && response.functionCalls.length > 0) {
+      const functionCall = response.functionCalls[0];
+      if (functionCall.name === 'findServices') {
+        // Add grounding chunks to the successful response if they exist
+        const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+        return {
+          serviceCategory: functionCall.args.serviceCategory,
+          location: functionCall.args.location,
+          groundingChunks: groundingMetadata?.groundingChunks || null,
+        };
+      }
+    }
+
+    // Fallback if function calling fails: attempt to parse text response
+    const textResponse = response.text;
+    console.warn("AI function calling did not trigger, falling back to text analysis.", textResponse);
+
+    // Create a regex to find category and location from text
+    const categoryRegex = new RegExp(`(${SERVICE_CATEGORIES.join('|')})`, 'i');
+    const locationRegex = new RegExp(`(${LOCATIONS.join('|')})`, 'i');
+    
+    const categoryMatch = textResponse.match(categoryRegex);
+    const locationMatch = textResponse.match(locationRegex);
+
+    if (categoryMatch && locationMatch) {
+        return {
+            serviceCategory: categoryMatch[0],
+            location: locationMatch[0],
+        };
+    } else {
+        throw new Error("Could not determine both a service and location from your request.");
+    }
+
+  } catch (error) {
+    console.error("Error calling Gemini in parseServiceRequest:", error);
+    throw new Error("The AI assistant could not understand your request. Please try rephrasing.");
+  }
+}
+
+async function generateProviderProfile(businessName, category) {
+  const model = "gemini-2.5-flash";
+  const prompt = `
+    Generate a professional and appealing service provider profile for a business in Kenya.
+    Business Name: "${businessName}"
+    Service Category: "${category}"
+
+    Your response must be a JSON object matching the provided schema.
+
+    - The description should be 1-2 engaging sentences.
+    - The expertise should be an array of 3-5 specific, relevant skills.
+    - Generate a descriptive prompt for an AI image generator to create a high-quality, professional cover image. The image should be relevant to the service and have a Kenyan context if appropriate.
+  `;
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            description: {
+              type: Type.STRING,
+              description: "A short, professional description of the service provider."
+            },
+            expertise: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "A list of specific skills or services offered."
+            },
+            coverImagePrompt: {
+              type: Type.STRING,
+              description: "A prompt for an AI image generator to create a cover photo."
+            }
+          },
+          required: ['description', 'expertise', 'coverImagePrompt'],
+        },
+      },
+    });
+    
+    const parsedResponse = robustJsonParse(response.text);
+
+    // Now, generate the image using the prompt we just created
+    const coverImageUrl = "https://images.unsplash.com/photo-1517048676732-d65bc937f952?q=80&w=800&h=400&fit=crop"; // Fallback
+    try {
+        // This is a placeholder for a real image generation call
+        // const imageResponse = await someImageGenerationApi(parsedResponse.coverImagePrompt);
+        // For this app, we will use a static image to avoid costs/complexity of another API.
+        // In a real scenario, you'd replace the fallback URL with the result.
+        console.log(`Image prompt that would be used: ${parsedResponse.coverImagePrompt}`);
+    } catch(imgError) {
+        console.error("Image generation failed, using fallback.", imgError);
+    }
+    
+    return {
+        description: parsedResponse.description,
+        expertise: parsedResponse.expertise,
+        coverImageUrl: coverImageUrl
+    };
+
+  } catch (error) {
+    console.error("Error generating provider profile with Gemini:", error);
+    throw new Error("AI could not generate profile details.");
+  }
+}
+
+
+async function generateLogoImage(prompt) {
+    // This is a placeholder. A real implementation would call an image generation model.
+    // For this app, we return a dynamic avatar URL instead to simulate logo generation.
+    const encodedPrompt = encodeURIComponent(prompt);
+    return `https://ui-avatars.com/api/?name=${encodedPrompt}&background=007A33&color=fff&size=256&bold=true`;
+}
+
+async function generateDetailedServices(category, description) {
+  const model = "gemini-2.5-flash";
+  const prompt = `
+    Based on the following service provider profile, suggest a list of 3 to 5 specific, detailed services they might offer.
+    Service Category: "${category}"
+    Provider Description: "${description}"
+    
+    For each service, provide a name, a brief one-sentence description, and a plausible price in Kenyan Shillings (KES) as a string (e.g., "KES 1,500" or "Starting from KES 5,000").
+    
+    Respond with a JSON array that matches the provided schema.
+  `;
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              description: { type: Type.STRING },
+              price: { type: Type.STRING }
+            },
+            required: ['name', 'description', 'price']
+          }
+        }
+      }
+    });
+    return robustJsonParse(response.text);
+  } catch(error) {
+    console.error("Error generating detailed services with Gemini:", error);
+    throw new Error("AI could not generate detailed services.");
+  }
+}
+
+async function generateQuotationItems(provider, requestDetails) {
+    const model = "gemini-2.5-flash";
+    const prompt = `
+        A customer needs the following service: "${requestDetails}".
+        The service provider is a "${provider.category}" professional in Kenya. Their hourly rate is ${provider.hourlyRate} KES.
+        
+        Based on the request, create a list of 2-4 line items for a price quotation. For each item, provide a clear description, a quantity, and a reasonable unit price in Kenyan Shillings.
+        The prices should be plausible for the Kenyan market.
+        
+        Respond ONLY with a JSON array that matches the provided schema.
+    `;
+    try {
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            description: { type: Type.STRING },
+                            quantity: { type: Type.INTEGER },
+                            unitPrice: { type: Type.NUMBER }
+                        },
+                        required: ['description', 'quantity', 'unitPrice']
+                    }
+                }
+            }
+        });
+        return robustJsonParse(response.text);
+    } catch(error) {
+        console.error("Error generating quotation items with Gemini:", error);
+        throw new Error("AI could not generate quotation items.");
+    }
+}
+
+
+async function generateSearchSuggestions(category, providers) {
+    const model = "gemini-2.5-flash";
+    // Create a summary of available expertise to give the model context.
+    const expertiseSample = providers
+        .flatMap(p => p.expertise || [])
+        .slice(0, 20) // Limit context size
+        .join(', ');
+
+    const prompt = `
+        A user is searching for "${category}" services.
+        Some of the available specializations from providers include: ${expertiseSample}.
+        
+        Based on this, suggest 3-4 short, specific, and relevant search terms a user might type to refine their search. For example, if the category is 'Plumbing', suggestions could be 'Leaky tap repair', 'Blocked drain', 'Geyser installation'.
+        
+        Return a JSON array of strings.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+            }
+        });
+        return robustJsonParse(response.text);
+    } catch(error) {
+        console.error("Error generating search suggestions with Gemini:", error);
+        throw new Error("AI could not generate search suggestions.");
+    }
+}
+
+
+module.exports = {
+  parseServiceRequest,
+  generateProviderProfile,
+  generateLogoImage,
+  generateDetailedServices,
+  verifyProviderImage,
+  getReadableLocation,
+  getCityFromCoordinates,
+  initChatSession,
+  sendMessageStream,
+  closeChatSession,
+  generateQuotationItems,
+  generateSearchSuggestions,
+  getLocalHubData
+};

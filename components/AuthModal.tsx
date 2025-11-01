@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { User, UserRole } from '../types';
+// FIX: Import `PendingRegistrationData` to correctly type the registration payload.
+import { User, UserRole, PendingRegistrationData } from '../types';
 import { CloseIcon } from './IconComponents';
 import { LegalDocType } from '../types';
 import { useAppContext } from '../contexts/AppContext';
@@ -9,7 +10,8 @@ import PhoneNumberInput from './PhoneNumberInput';
 import * as api from '../frontend/services/api';
 
 interface AuthModalProps {
-  onVerificationNeeded: (userData: Omit<User, 'id' | 'kycVerified'>) => void;
+  // FIX: Changed the type of `userData` to `PendingRegistrationData` to correctly handle the `password` field.
+  onVerificationNeeded: (userData: PendingRegistrationData) => void;
   onLoginSuccess: (user: User, isNewUser: boolean, token?: string) => void;
   onShowTerms: (type: LegalDocType) => void;
   promptMessage?: string;

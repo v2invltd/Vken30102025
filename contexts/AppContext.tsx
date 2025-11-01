@@ -1,3 +1,4 @@
+
 import React, { createContext, useReducer, useContext, Dispatch, ReactNode } from 'react';
 import { User, Location, ServiceCategory, ServiceProvider, Booking, Message, Notification, JobAlert } from '../types';
 
@@ -55,6 +56,7 @@ interface AppState {
     isSearchResultsLoading: boolean;
     isInitialProvidersLoaded: boolean;
     isInitializing: boolean;
+    isAutoDetectingLocation: boolean; // FIX: New state to manage geolocation on startup
 }
 
 // Define the actions that can be dispatched
@@ -76,7 +78,6 @@ type Action =
     | { type: 'ADD_BOOKING'; payload: Booking }
     | { type: 'SET_BOOKINGS'; payload: Booking[] }
     | { type: 'UPDATE_BOOKING'; payload: Booking }
-    | { type: 'ADD_MESSAGE_TO_CHAT'; payload: { bookingId: string, message: Message } }
     | { type: 'ADD_NOTIFICATION'; payload: Notification }
     | { type: 'SET_NOTIFICATIONS'; payload: Notification[] }
     | { type: 'MARK_ALL_NOTIFICATIONS_AS_READ'; payload: { userId: string } }
@@ -87,7 +88,8 @@ type Action =
     | { type: 'SET_SEARCH_GROUNDING_SOURCES'; payload: any[] | null }
     | { type: 'SET_SEARCH_LOADING_STATUS'; payload: boolean }
     | { type: 'SET_INITIAL_PROVIDERS_LOADED'; payload: boolean }
-    | { type: 'SET_INITIALIZING'; payload: boolean };
+    | { type: 'SET_INITIALIZING'; payload: boolean }
+    | { type: 'SET_AUTO_DETECTING_LOCATION'; payload: boolean }; // FIX: Action for the new state
 
 // Initial state of the application
 const initialState: AppState = {
@@ -108,6 +110,7 @@ const initialState: AppState = {
     isSearchResultsLoading: false,
     isInitialProvidersLoaded: false,
     isInitializing: true,
+    isAutoDetectingLocation: true, // FIX: Initialize as true on app start
 };
 
 // The reducer function to handle state updates
@@ -118,12 +121,10 @@ const appReducer = (state: AppState, action: Action): AppState => {
         case 'LOGOUT':
             // Reset parts of the state on logout for a clean slate
             return { 
-                ...state, 
-                currentUser: null, 
-                view: AppView.HOME, 
-                bookings: [], 
-                favoriteProviderIds: [],
-                notifications: [],
+                ...initialState, // Reset to a clean initial state
+                isInitializing: false, // Don't show loading spinner after logout
+                isAutoDetectingLocation: false,
+                favoriteProviderIds: [], // Clear favorites on logout
             };
         case 'UPDATE_USER':
             if (!state.currentUser) return state;
@@ -177,15 +178,6 @@ const appReducer = (state: AppState, action: Action): AppState => {
                 ...state,
                 bookings: state.bookings.map(b => b.id === action.payload.id ? action.payload : b),
             };
-        case 'ADD_MESSAGE_TO_CHAT':
-            return {
-                ...state,
-                bookings: state.bookings.map(b =>
-                    b.id === action.payload.bookingId
-                        ? { ...b, chatHistory: [...(b.chatHistory || []), action.payload.message] }
-                        : b
-                ),
-            };
         case 'ADD_NOTIFICATION':
             return { ...state, notifications: [action.payload, ...state.notifications] };
         case 'SET_NOTIFICATIONS':
@@ -213,6 +205,9 @@ const appReducer = (state: AppState, action: Action): AppState => {
             return { ...state, isInitialProvidersLoaded: action.payload };
         case 'SET_INITIALIZING':
             return { ...state, isInitializing: action.payload };
+        // FIX: Handle the new action
+        case 'SET_AUTO_DETECTING_LOCATION':
+            return { ...state, isAutoDetectingLocation: action.payload };
         default:
             return state;
     }

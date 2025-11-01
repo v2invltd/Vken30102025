@@ -1,5 +1,7 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+// FIX: The root cause was App.tsx not having a default export. With that fixed, this default import now works as intended.
 import App from './App';
 import { ToastProvider } from './components/Toast';
 import { AppProvider } from './contexts/AppContext';
